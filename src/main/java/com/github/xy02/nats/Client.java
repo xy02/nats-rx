@@ -6,6 +6,7 @@ import io.reactivex.Single;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.PublishSubject;
+import io.reactivex.subjects.Subject;
 
 import java.io.*;
 import java.net.Socket;
@@ -21,18 +22,22 @@ public class Client {
     private final static String TYPE_ERR = "-ERR";
     private final static byte[] BUFFER_PONG = "PONG\r\n".getBytes();
     private final static byte[] BUFFER_PING = "PING\r\n".getBytes();
+    private int sid;
+    private byte[] crlf = new byte[2];
+    private Subject<Message> msgSubject = PublishSubject.create();
 
     private OutputStream os;
+    private InputStream is;
 
-    private PublishSubject<Boolean> pongSubject = PublishSubject.create();
+    private Subject<Boolean> pongSubject = PublishSubject.create();
 
-    protected void onPong(){
+    private void onPong() {
         pongSubject.onNext(true);
     }
 
     private Client(String host, Options options) throws IOException {
         Socket socket = new Socket(host, options.getPort());
-        InputStream is = socket.getInputStream();
+        is = socket.getInputStream();
         os = socket.getOutputStream();
 
         BehaviorSubject<Boolean> readerLatchSubject = BehaviorSubject.createDefault(true);
@@ -48,59 +53,55 @@ public class Client {
         dataObs.map(str -> str.split(" "))
                 .groupBy(arr -> arr[0])
                 .flatMap(group -> group)
-                .map(this::parseCommand)
+                .doOnNext(this::handleCommand)
                 .doOnNext(x -> readerLatchSubject.onNext(true))
-                .flatMapCompletable(command -> command.execute(this))
                 .subscribeOn(Schedulers.io())
                 .subscribe();
     }
 
-    private Command parseCommand(String[] data) throws Exception {
+    private void handleCommand(String[] data) throws Exception {
         switch (data[0]) {
             case TYPE_INFO:
-                return parseInfo(data);
+                handleInfo(data);
             case TYPE_MSG:
-                return parseMsg(data);
+                handleMsg(data);
             case TYPE_PING:
-                return parsePing(data);
+                pong();
             case TYPE_PONG:
-                return parsePong(data);
+                onPong();
             case TYPE_OK:
-                return parseOK(data);
+                System.out.println(data[0]);
             case TYPE_ERR:
-                return parseErr(data);
+                System.out.println(data[0]);
         }
         throw new Exception("bad data");
     }
 
-    private Command parseInfo(String[] data) {
+    private void handleInfo(String[] data) {
         System.out.println(data[1]);
-        return new Info();
     }
 
-    private Command parseMsg(String[] data) {
-        System.out.println(data);
-        return null;
-    }
-
-    private Command parsePing(String[] data) {
-        System.out.println(data[0]);
-        return new Ping();
-    }
-
-    private Command parsePong(String[] data) {
-        System.out.println(data[0]);
-        return new Pong();
-    }
-
-    private Command parseOK(String[] data) {
-        System.out.println(data);
-        return null;
-    }
-
-    private Command parseErr(String[] data) {
-        System.out.println(data);
-        return null;
+    private void handleMsg(String[] data) throws Exception {
+        if (data.length < 4)
+            throw new Exception("wrong msg");
+        String subject = data[1];
+        String sid = data[2];
+        String replyTo = "";
+        int bytes = 0;
+        if (data.length == 4)
+            bytes = Integer.parseInt(data[3]);
+        else {
+            replyTo = data[3];
+            bytes = Integer.parseInt(data[4]);
+        }
+        byte[] buf = new byte[bytes];
+        int index = is.read(buf);
+        if (index != bytes)
+            throw new Exception("bad length of msg body");
+        index = is.read(crlf);
+        if (index != 2 || !new String(crlf).equals("\r\n"))
+            throw new Exception("bad crlf");
+        msgSubject.onNext(new Message(subject, Integer.parseInt(sid), replyTo, buf));
     }
 
     public static Single<Client> connect(String host) {
@@ -114,8 +115,13 @@ public class Client {
         });
     }
 
-    public Observable<Message> subscribe(String subject, String queue) {
-        return null;
+    public synchronized Observable<Message> subscribe(String subject, String queue) {
+        final int _sid = ++sid;
+        return Completable.fromObservable(Observable.just(_sid)
+                .map(sid -> new StringBuilder("SUB ").append(subject).append(" ").append(queue).append(" ").append(sid).append("\r\n").toString().getBytes())
+                .doOnNext(x -> os.write(x)))
+                .andThen(msgSubject)
+                .filter(message -> message.getSubject().equals(subject) && message.getSid() == _sid);
     }
 
     public Completable publish(Message message) {
@@ -123,15 +129,15 @@ public class Client {
     }
 
     public Completable ping(long timeout, TimeUnit unit) {
-        return Completable.create(e->{
+        return Completable.create(e -> {
             os.write(BUFFER_PING);
             e.onComplete();
         }).concatWith(Completable.fromObservable(pongSubject.take(1)))
                 .timeout(timeout, unit);
     }
 
-    protected Completable pong() {
-        return Completable.create(e->{
+    private Completable pong() {
+        return Completable.create(e -> {
             os.write(BUFFER_PONG);
             e.onComplete();
         });
