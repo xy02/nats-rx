@@ -2,52 +2,96 @@ package com.github.xy02.nats;
 
 import io.reactivex.Completable;
 import io.reactivex.Observable;
-import io.reactivex.Single;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 
-import java.io.*;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 
 public class Client {
 
-    public static Single<Client> connect(String host) {
-        return connect(host, new Options());
+    public Client(String host) {
+        this(host, new Options());
     }
 
-    public static Single<Client> connect(String host, Options options) {
-        return Single.create(emitter -> {
-            Client c = new Client(host, options);
-            emitter.onSuccess(c);
-        });
+    public Client(String host, Options options) {
+        this.host = host;
+        this.options = options;
     }
 
-    public  Observable<Msg> subscribe(String subject) {
-        return subscribe(subject,"");
+    public Observable<String[]> connect() {
+        BehaviorSubject<Boolean> readerLatchSubject = BehaviorSubject.createDefault(true);
+        byte[] buf = new byte[1];
+        return Observable.create(emitter -> {
+            System.out.println("create, tid" + Thread.currentThread().getId());
+            socket = new Socket(host, options.getPort());
+            os = socket.getOutputStream();
+            is = socket.getInputStream();
+            emitter.onNext(socket);
+        })
+                .subscribeOn(Schedulers.io())
+                .flatMap(x -> readerLatchSubject)
+                .map(x -> readLine(buf))
+                .map(str -> str.split(" "))
+                .groupBy(arr -> arr[0])
+                .flatMap(group -> group)
+                .doOnNext(this::handleCommand)
+                .doOnNext(x -> readerLatchSubject.onNext(true))
+                .doOnError(err -> msgSubject.onNext(new Msg()))
+                .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
+                .doOnDispose(() -> {
+                    System.out.println("doOnDispose, tid" + Thread.currentThread().getId());
+                    pongSubject.onComplete();
+                    msgSubject.onComplete();
+                    socket.close();
+                    os.close();
+                    is.close();
+                });
     }
 
-    public synchronized Observable<Msg> subscribe(String subject, String queue) {
+    public Observable<Msg> subscribeMsg(String subject) {
+        return subscribeMsg(subject, "");
+    }
+
+    public synchronized Observable<Msg> subscribeMsg(String subject, String queue) {
         final int _sid = ++sid;
-        return Completable.fromObservable(Observable.just(_sid)
-                .map(sid -> new StringBuilder("SUB ").append(subject).append(" ").append(queue).append(" ").append(sid).append("\r\n").toString().getBytes())
+        byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
+        byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
+        return Completable.fromObservable(Observable.just(subMessage)
                 .doOnNext(x -> os.write(x)))
                 .andThen(msgSubject)
+                .doOnNext(msg -> {
+                    if (msg.getSubject() == null)
+                        throw new Exception("bad msg");
+                })
+                .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
-                .doOnDispose(()->os.write(new StringBuilder("UNSUB ").append(_sid).append("\r\n").toString().getBytes()));
+                .doOnDispose(() -> os.write(unsubMessage));
     }
 
     public Completable publish(Msg msg) {
-        return null;
+        int bodyLength = msg.getBody().length;
+        byte[] message = ("PUB " + msg.getSubject() + " " + msg.getReplyTo() + " " + bodyLength + "\r\n").getBytes();
+        return Completable.create(e -> {
+//            System.out.println("tid"+Thread.currentThread().getId());
+            byte[] data = ByteBuffer.allocate(message.length + bodyLength + 2).put(message).put(msg.getBody()).put(BUFFER_CRLF).array();
+            os.write(data);
+            e.onComplete();
+        });
     }
 
     public Completable ping(long timeout, TimeUnit unit) {
         return Completable.create(e -> {
+//            System.out.println("tid"+Thread.currentThread().getId());
             os.write(BUFFER_PING);
             e.onComplete();
-        }).concatWith(Completable.fromObservable(pongSubject.take(1)))
+        })
+                .concatWith(Completable.fromObservable(pongSubject.take(1)))
                 .timeout(timeout, unit);
     }
 
@@ -59,56 +103,39 @@ public class Client {
     private final static String TYPE_ERR = "-ERR";
     private final static byte[] BUFFER_PONG = "PONG\r\n".getBytes();
     private final static byte[] BUFFER_PING = "PING\r\n".getBytes();
-    private int sid;
+    private final static byte[] BUFFER_CRLF = "\r\n".getBytes();
 
+    private int sid;
+    private String host;
+    private Options options;
+    private Socket socket;
     private OutputStream os;
     private InputStream is;
 
     private Subject<Boolean> pongSubject = PublishSubject.create();
     private Subject<Msg> msgSubject = PublishSubject.create();
 
-
-    private Client(String host, Options options) throws IOException {
-        Socket socket = new Socket(host, options.getPort());
-        os = socket.getOutputStream();
-        is = socket.getInputStream();
-
-        BehaviorSubject<Boolean> readerLatchSubject = BehaviorSubject.createDefault(true);
-        observeMessage(is, readerLatchSubject)
-                .map(str -> str.split(" "))
-                .groupBy(arr -> arr[0])
-                .flatMap(group -> group)
-                .doOnNext(this::handleCommand)
-                .doOnNext(x -> readerLatchSubject.onNext(true))
-                .subscribeOn(Schedulers.io())
-                .subscribe();
-    }
-
-    private Observable<String> observeMessage(InputStream ins,BehaviorSubject<Boolean> readerLatchSubject){
-        return Observable.<String>create(emitter -> {
-            byte[] buf = new byte[1];
-            readerLatchSubject.subscribe(x -> {
-                System.out.println("try readLine");
-                StringBuilder sb = new StringBuilder();
-                while (true) {
-                    int read = ins.read(buf);
-                    if (read != 1)
-                        throw new Exception("bad read");
-                    if(buf[0] != 13){
-                        sb.append((char)buf[0]);
-                    }else{
-                        read = ins.read(buf);
-                        if (read != 1 || buf[0] != 10)
-                            throw new Exception("bad lf");
-                        break;
-                    }
-                }
-                emitter.onNext(sb.toString());
-            });
-        }).subscribeOn(Schedulers.io());
+    private String readLine(byte[] buf) throws Exception {
+        System.out.println("try readLine");
+        StringBuilder sb = new StringBuilder();
+        while (true) {
+            int read = is.read(buf);
+            if (read != 1)
+                throw new Exception("bad read");
+            if (buf[0] != 13) {
+                sb.append((char) buf[0]);
+            } else {
+                read = is.read(buf);
+                if (read != 1 || buf[0] != 10)
+                    throw new Exception("bad lf");
+                break;
+            }
+        }
+        return sb.toString();
     }
 
     private void handleCommand(String[] data) throws Exception {
+//        System.out.println("tid"+Thread.currentThread().getId());
         switch (data[0]) {
             case TYPE_INFO:
                 handleInfo(data);
@@ -127,7 +154,7 @@ public class Client {
                 System.out.println(data[0]);
                 return;
             case TYPE_ERR:
-                System.out.println(data[0]+":"+data[1]);
+                System.out.println(String.join(" ", data));
                 return;
         }
         throw new Exception("bad data");
@@ -154,7 +181,7 @@ public class Client {
         byte[] buf = new byte[bytes];
         int index = 0;
         while (index < bytes) {
-            int read = is.read(buf, index, bytes-index);
+            int read = is.read(buf, index, bytes - index);
             if (read == -1)
                 throw new Exception("read -1");
             index += read;
@@ -167,6 +194,5 @@ public class Client {
             throw new Exception("bad lf");
         msgSubject.onNext(new Msg(subject, Integer.parseInt(sid), replyTo, buf));
     }
-
 
 }
