@@ -6,12 +6,15 @@ public class Msg {
     private String replyTo;
     private byte[] body;
 
-    protected Msg(){}
+    protected Msg() {
+    }
 
-    public Msg(String subject, String replyTo, byte[] body){
-        this.subject = subject;
-        this.replyTo = replyTo;
-        this.body = body;
+    public Msg(String subject, byte[] body) {
+        this(subject, "", body);
+    }
+
+    public Msg(String subject, String replyTo, byte[] body) {
+        this(subject, 0, replyTo, body);
     }
 
     protected Msg(String subject, int sid, String replyTo, byte[] body) {

@@ -8,13 +8,15 @@ import java.util.concurrent.TimeUnit;
 
 public class Main {
     public static void main(String[] args) {
-        Msg testMsg = new Msg("test", "", "hello".getBytes());
+        Msg testMsg = new Msg("test", "hello".getBytes());
         Client client = new Client("192.168.8.99");
         Disposable d = client.connect().subscribe();
         client.subscribeMsg("test")
                 .doOnNext(msg -> System.out.println(msg.getSubject() + ":" + new String(msg.getBody())))
-                .subscribe(msg -> {},err->{},()->System.out.println("subscribeMsg onComplete"));
-        Observable.interval(0,50, TimeUnit.MICROSECONDS)
+                .subscribe(msg -> {
+                }, err -> {
+                }, () -> System.out.println("subscribeMsg onComplete"));
+        Observable.interval(0, 50, TimeUnit.MICROSECONDS)
                 .flatMapCompletable(x -> client.publish(testMsg))
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .subscribe();
@@ -23,7 +25,7 @@ public class Main {
 //                .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
 //                .subscribe();
         Observable.timer(10, TimeUnit.SECONDS)
-                .subscribe(x->d.dispose());
+                .subscribe(x -> d.dispose());
         try {
             Thread.sleep(Long.MAX_VALUE);
         } catch (Exception ex) {

@@ -25,6 +25,8 @@ public class Client {
     }
 
     public Observable<String[]> connect() {
+        if(msgSubject.hasComplete())
+            return Observable.error(new Exception("disposed"));
         BehaviorSubject<Boolean> readerLatchSubject = BehaviorSubject.createDefault(true);
         byte[] buf = new byte[1];
         return Observable.create(emitter -> {
@@ -116,7 +118,7 @@ public class Client {
     private Subject<Msg> msgSubject = PublishSubject.create();
 
     private String readLine(byte[] buf) throws Exception {
-        System.out.println("try readLine");
+//        System.out.println("try readLine");
         StringBuilder sb = new StringBuilder();
         while (true) {
             int read = is.read(buf);
@@ -151,7 +153,7 @@ public class Client {
                 pongSubject.onNext(true);
                 return;
             case TYPE_OK:
-                System.out.println(data[0]);
+//                System.out.println(data[0]);
                 return;
             case TYPE_ERR:
                 System.out.println(String.join(" ", data));
