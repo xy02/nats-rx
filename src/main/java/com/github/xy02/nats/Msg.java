@@ -1,12 +1,12 @@
 package com.github.xy02.nats;
 
-public class Message {
+public class Msg {
     private String subject;
     private int sid;
     private String replyTo;
     private byte[] body;
 
-    protected Message(String subject, int sid, String replyTo, byte[] body) {
+    protected Msg(String subject, int sid, String replyTo, byte[] body) {
         this.subject = subject;
         this.sid = sid;
         this.replyTo = replyTo;
