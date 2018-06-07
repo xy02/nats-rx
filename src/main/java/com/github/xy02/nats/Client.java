@@ -36,7 +36,6 @@ public class Client {
                 .flatMapSingle(this::handleMessage)
                 .doOnNext(System.out::println)
                 .doOnNext(x -> readerLatchSubject.onNext(true))
-                .doOnError(err -> msgSubject.onNext(new Msg()))
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .doOnDispose(() -> {
                     System.out.println("doOnDispose, tid" + Thread.currentThread().getId());
@@ -60,17 +59,15 @@ public class Client {
         final int _sid = ++sid;
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
-        return singleOutputStream.doOnSuccess(os -> os.write(subMessage))
-                .flatMapObservable(x -> msgSubject)
-                .doOnNext(msg -> {
-                    if (msg.getSubject() == null)
-                        throw new Exception("bad msg");
-                })
+        Disposable d = osSubject.doOnNext(os->os.write(subMessage))
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
-                .filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
-                .doOnDispose(() ->
-                        singleOutputStream.subscribe(os -> os.write(unsubMessage))
-                );
+                .doOnDispose(() ->{
+                        System.out.println("subscribeMsg doOnDispose");
+                        singleOutputStream.subscribe(os -> os.write(unsubMessage));
+                })
+                .subscribe();
+        return msgSubject.filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
+                .doOnDispose(d::dispose);
     }
 
     public Completable publish(Msg msg) {
@@ -101,8 +98,6 @@ public class Client {
 
     private int sid;
     private Socket socket;
-    //    private OutputStream os;
-//    private InputStream is;
     private Disposable conn;
 
     private Subject<Boolean> pongSubject = PublishSubject.create();

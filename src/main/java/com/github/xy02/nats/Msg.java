@@ -6,8 +6,8 @@ public class Msg {
     private String replyTo;
     private byte[] body;
 
-    protected Msg() {
-    }
+//    protected Msg() {
+//    }
 
     public Msg(String subject, byte[] body) {
         this(subject, "", body);
