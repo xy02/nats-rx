@@ -1,15 +1,25 @@
-# nats-rx
+# client-rx
 > It's a simple NATS client based on RxJava.
 
+## Install
+```gradle
+repositories {
+    ...
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    implementation 'com.github.xy02:nats-rx:0.2.0'
+}
+```
 ## Usage
-Init:
+Connect:
 ```java
     Client client = new Client("127.0.0.1");
-    Disposable d = client.connect().subscribe();
 ```
 Disconnect:
 ```java
-    d.dispose();
+    client.close();
 ```
 Subscribe message:
 ```java
