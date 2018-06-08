@@ -9,6 +9,7 @@ import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
@@ -17,16 +18,19 @@ import java.util.concurrent.TimeUnit;
 
 public class Client {
 
-    public Client(String host) {
-        this(host, new Options());
+    public Disposable connect(String host) throws IOException {
+        return connect(host, new Options());
     }
 
-    public Client(String host, Options options) {
+    public synchronized Disposable connect(String host, Options options) throws IOException {
+        if (conn != null) {
+            conn.dispose();
+        }
         BehaviorSubject<Boolean> readerLatchSubject = BehaviorSubject.createDefault(true);
         byte[] buf = new byte[1];
+        Socket socket = new Socket(host, options.getPort());
         conn = Completable.create(emitter -> {
             System.out.println("create, tid" + Thread.currentThread().getId());
-            socket = new Socket(host, options.getPort());
             isSubject.onNext(socket.getInputStream());
             osSubject.onNext(socket.getOutputStream());
             emitter.onComplete();
@@ -39,16 +43,13 @@ public class Client {
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .doOnDispose(() -> {
                     System.out.println("doOnDispose, tid" + Thread.currentThread().getId());
-                    osSubject.onComplete();
-                    isSubject.onComplete();
-                    pongSubject.onComplete();
-                    msgSubject.onComplete();
+//                    osSubject.onComplete();
+//                    isSubject.onComplete();
+//                    pongSubject.onComplete();
+//                    msgSubject.onComplete();
                     socket.close();
                 }).subscribe();
-    }
-
-    public void close() {
-        conn.dispose();
+        return conn;
     }
 
     public Observable<Msg> subscribeMsg(String subject) {
@@ -59,11 +60,14 @@ public class Client {
         final int _sid = ++sid;
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
-        Disposable d = osSubject.doOnNext(os->os.write(subMessage))
+        Disposable d = osSubject.doOnNext(os -> os.write(subMessage))
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
-                .doOnDispose(() ->{
-                        System.out.println("subscribeMsg doOnDispose");
-                        singleOutputStream.subscribe(os -> os.write(unsubMessage));
+                .doOnDispose(() -> {
+                    System.out.println("subscribeMsg doOnDispose");
+                    singleOutputStream
+                            .doOnSuccess(os -> os.write(unsubMessage))
+                            .subscribe(os -> {
+                            }, Throwable::printStackTrace);
                 })
                 .subscribe();
         return msgSubject.filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
@@ -97,7 +101,6 @@ public class Client {
     private final static byte[] BUFFER_CRLF = "\r\n".getBytes();
 
     private int sid;
-    private Socket socket;
     private Disposable conn;
 
     private Subject<Boolean> pongSubject = PublishSubject.create();
@@ -109,7 +112,7 @@ public class Client {
 
     private Single<String> readLine(byte[] buf) {
         return singleInputStream.map(is -> {
-            System.out.println("try readLine");
+//            System.out.println("try readLine");
             StringBuilder sb = new StringBuilder();
             while (true) {
                 int read = is.read(buf);
