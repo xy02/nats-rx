@@ -18,14 +18,11 @@ import java.util.concurrent.TimeUnit;
 
 public class Client {
 
-    public Disposable connect(String host) throws IOException {
-        return connect(host, new Options());
+    public Client(String host) throws IOException {
+        this(host, new Options());
     }
 
-    public synchronized Disposable connect(String host, Options options) throws IOException {
-        if (conn != null) {
-            conn.dispose();
-        }
+    public Client(String host, Options options) throws IOException {
         BehaviorSubject<Boolean> readerLatchSubject = BehaviorSubject.createDefault(true);
         byte[] buf = new byte[1];
         Socket socket = new Socket(host, options.getPort());
@@ -43,13 +40,16 @@ public class Client {
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .doOnDispose(() -> {
                     System.out.println("doOnDispose, tid" + Thread.currentThread().getId());
-//                    osSubject.onComplete();
-//                    isSubject.onComplete();
-//                    pongSubject.onComplete();
-//                    msgSubject.onComplete();
+                    osSubject.onComplete();
+                    isSubject.onComplete();
+                    pongSubject.onComplete();
+                    msgSubject.onComplete();
                     socket.close();
                 }).subscribe();
-        return conn;
+    }
+
+    public void close() {
+        conn.dispose();
     }
 
     public Observable<Msg> subscribeMsg(String subject) {

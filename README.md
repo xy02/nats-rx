@@ -15,12 +15,11 @@ dependencies {
 ## Usage
 Connect:
 ```java
-    Client client = new Client();
-    Disposable d = client.connect("192.168.8.99");
+    Client client = new Client("127.0.0.1");
 ```
 Disconnect:
 ```java
-    d.dispose();
+    client.close();
 ```
 Subscribe message:
 ```java
