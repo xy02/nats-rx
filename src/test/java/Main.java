@@ -1,19 +1,26 @@
+import com.github.xy02.nats.Client;
 import com.github.xy02.nats.Connection;
+import com.github.xy02.nats.IConnection;
+import io.reactivex.Observable;
+import io.reactivex.disposables.Disposable;
+
+import java.util.concurrent.TimeUnit;
 
 public class Main {
 
     public static void main(String[] args) {
         try {
-            Connection nc = new Connection();
+
+            IConnection nc = new Connection();
             nc.connect().subscribe();
-//            Client client = new Client("127.0.0.1");
-//
-//            client.subscribeMsg("test")
-//                    .doOnNext(msg -> System.out.printf("Received a message: %s\n", new String(msg.getBody())))
-////                .take(2)
-//                    .subscribe(msg -> {
-//                    }, err -> {
-//                    }, () -> System.out.println("subscribeMsg onComplete"));
+
+//            Client nc = new Client("127.0.0.1");
+            nc.subscribeMsg("test")
+                    .doOnNext(msg -> System.out.printf("Received a message: %s\n", new String(msg.getBody())))
+//                .take(2)
+                    .subscribe(msg -> {
+                    }, err -> {
+                    }, () -> System.out.println("subscribeMsg onComplete"));
 //
 //            MSG testMsg = new MSG("test", "hello".getBytes());
 //            Observable.interval(0, 1, TimeUnit.NANOSECONDS)

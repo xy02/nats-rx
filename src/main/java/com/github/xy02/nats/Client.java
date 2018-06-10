@@ -29,7 +29,7 @@ public class Client {
         conn = Completable.create(emitter -> {
             System.out.println("create, tid" + Thread.currentThread().getId());
             OutputStream os = socket.getOutputStream();
-            os.write(BUFFER_CONNECT);
+//            os.write(BUFFER_CONNECT);
             isSubject.onNext(socket.getInputStream());
             osSubject.onNext(os);
             emitter.onComplete();
@@ -37,7 +37,7 @@ public class Client {
                 .andThen(readerLatchSubject)
                 .flatMapSingle(x -> readLine(buf))
                 .flatMapSingle(this::handleMessage)
-//                .doOnNext(System.out::println)
+                .doOnNext(System.out::println)
                 .doOnNext(x -> readerLatchSubject.onNext(true))
                 .doOnError(Throwable::printStackTrace)
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))

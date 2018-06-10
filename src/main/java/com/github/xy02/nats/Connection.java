@@ -3,7 +3,10 @@ package com.github.xy02.nats;
 import io.reactivex.Completable;
 import io.reactivex.Observable;
 import io.reactivex.ObservableEmitter;
+import io.reactivex.Single;
+import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
+import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 
@@ -12,6 +15,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.concurrent.TimeUnit;
 
 public class Connection implements IConnection {
 
@@ -28,8 +32,9 @@ public class Connection implements IConnection {
         return Observable.<InputStream>create(emitter -> {
             System.out.printf("create, tid:%d\n", Thread.currentThread().getId());
             socket = new Socket(options.getHost(), options.getPort());
-            os = new BufferedOutputStream(socket.getOutputStream(), 1024 * 64);
-            os.write(BUFFER_CONNECT);
+            OutputStream os = new BufferedOutputStream(socket.getOutputStream(), 1024 * 64);
+//            os.write(BUFFER_CONNECT);
+            osSubject.onNext(os);
             emitter.onNext(socket.getInputStream());
             emitter.onComplete();
         }).subscribeOn(Schedulers.io())
@@ -41,8 +46,30 @@ public class Connection implements IConnection {
     }
 
     @Override
-    public Observable<MSG> subscribeMsg() {
-        return null;
+    public Observable<MSG> subscribeMsg(String subject) {
+        return subscribeMsg(subject, "");
+    }
+
+    @Override
+    public synchronized Observable<MSG> subscribeMsg(String subject, String queue) {
+        final int _sid = ++sid;
+        byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
+        byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
+        Disposable d = osSubject.doOnNext(os -> os.write(subMessage))
+                .doOnNext(x->System.out.println("write"))
+                .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
+                .doOnDispose(() -> {
+                    System.out.printf("subscribeMsg doOnDispose, tid:%d",Thread.currentThread().getId());
+                    singleOutputStream
+                            .doOnSuccess(os -> os.write(unsubMessage))
+                            .subscribe(os -> {
+                            }, Throwable::printStackTrace);
+                })
+                .subscribeOn(Schedulers.single())
+                .subscribe();
+        //need improve
+        return msgSubject.filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
+                .doOnDispose(d::dispose);
     }
 
     @Override
@@ -62,11 +89,14 @@ public class Connection implements IConnection {
     private final static String TYPE_PONG = "PONG";
     private final static String TYPE_OK = "+OK";
     private final static String TYPE_ERR = "-ERR";
+    private int sid;
     private Options options;
     private Socket socket;
     private byte[] buf = new byte[1024 * 64];
-    OutputStream os;
+    private Subject<OutputStream> osSubject = BehaviorSubject.create();
+    Single<OutputStream> singleOutputStream = osSubject.take(1).singleOrError();
     Subject<Boolean> pongSubject = PublishSubject.create();
+    Subject<MSG> msgSubject = PublishSubject.create();
 
     private Observable<Message> readMessage(InputStream inputStream) {
         return Observable.<Message>create(emitter -> {
