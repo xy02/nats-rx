@@ -28,15 +28,18 @@ public class Client {
         Socket socket = new Socket(host, options.getPort());
         conn = Completable.create(emitter -> {
             System.out.println("create, tid" + Thread.currentThread().getId());
+            OutputStream os = socket.getOutputStream();
+            os.write(BUFFER_CONNECT);
             isSubject.onNext(socket.getInputStream());
-            osSubject.onNext(socket.getOutputStream());
+            osSubject.onNext(os);
             emitter.onComplete();
         }).subscribeOn(Schedulers.io())
                 .andThen(readerLatchSubject)
                 .flatMapSingle(x -> readLine(buf))
                 .flatMapSingle(this::handleMessage)
-                .doOnNext(System.out::println)
+//                .doOnNext(System.out::println)
                 .doOnNext(x -> readerLatchSubject.onNext(true))
+                .doOnError(Throwable::printStackTrace)
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .doOnDispose(() -> {
                     System.out.println("doOnDispose, tid" + Thread.currentThread().getId());
@@ -52,11 +55,11 @@ public class Client {
         conn.dispose();
     }
 
-    public Observable<Msg> subscribeMsg(String subject) {
+    public Observable<MSG> subscribeMsg(String subject) {
         return subscribeMsg(subject, "");
     }
 
-    public synchronized Observable<Msg> subscribeMsg(String subject, String queue) {
+    public synchronized Observable<MSG> subscribeMsg(String subject, String queue) {
         final int _sid = ++sid;
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
@@ -69,16 +72,19 @@ public class Client {
                             .subscribe(os -> {
                             }, Throwable::printStackTrace);
                 })
+                .subscribeOn(Schedulers.io())
                 .subscribe();
         return msgSubject.filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
                 .doOnDispose(d::dispose);
     }
 
-    public Completable publish(Msg msg) {
+    public Completable publish(MSG msg) {
         int bodyLength = msg.getBody().length;
         byte[] message = ("PUB " + msg.getSubject() + " " + msg.getReplyTo() + " " + bodyLength + "\r\n").getBytes();
         byte[] data = ByteBuffer.allocate(message.length + bodyLength + 2).put(message).put(msg.getBody()).put(BUFFER_CRLF).array();
-        return singleOutputStream.doOnSuccess(os -> os.write(data))
+        return singleOutputStream
+//                .doOnSuccess(x-> System.out.printf("write tid:%d\n", Thread.currentThread().getId()))
+                .doOnSuccess(os -> os.write(data))
                 .toCompletable();
     }
 
@@ -99,12 +105,13 @@ public class Client {
     private final static byte[] BUFFER_PONG = "PONG\r\n".getBytes();
     private final static byte[] BUFFER_PING = "PING\r\n".getBytes();
     private final static byte[] BUFFER_CRLF = "\r\n".getBytes();
+    private final static byte[] BUFFER_CONNECT = "CONNECT {\"verbose\":false,\"pedantic\":false,\"tls_required\":false,\"name\":\"\",\"lang\":\"java\",\"version\":\"0.2.3\",\"protocol\":0}\r\n".getBytes();
 
     private int sid;
     private Disposable conn;
 
     private Subject<Boolean> pongSubject = PublishSubject.create();
-    private Subject<Msg> msgSubject = PublishSubject.create();
+    private Subject<MSG> msgSubject = PublishSubject.create();
     private Subject<OutputStream> osSubject = BehaviorSubject.create();
     private Single<OutputStream> singleOutputStream = osSubject.take(1).singleOrError();
     private Subject<InputStream> isSubject = BehaviorSubject.create();
@@ -112,7 +119,7 @@ public class Client {
 
     private Single<String> readLine(byte[] buf) {
         return singleInputStream.map(is -> {
-//            System.out.println("try readLine");
+//            System.out.printf("try readLine tid:%d\n", Thread.currentThread().getId());
             StringBuilder sb = new StringBuilder();
             while (true) {
                 int read = is.read(buf);
@@ -206,7 +213,7 @@ public class Client {
                 throw new Exception("bad cr");
             if (is.read(crlf) != 1 || crlf[0] != 10)
                 throw new Exception("bad lf");
-            msgSubject.onNext(new Msg(subject, Integer.parseInt(sid), replyTo, buf));
+            msgSubject.onNext(new MSG(subject, Integer.parseInt(sid), replyTo, buf));
         }).toCompletable();
     }
 
