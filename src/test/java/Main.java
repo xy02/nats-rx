@@ -15,7 +15,7 @@ public class Main {
             nc.connect().subscribe();
 
 //            Client nc = new Client("127.0.0.1");
-            nc.subscribeMsg("test")
+            nc.subscribeMsg("test1")
                     .doOnNext(msg -> System.out.printf("Received a message: %s\n", new String(msg.getBody())))
 //                .take(2)
                     .subscribe(msg -> {

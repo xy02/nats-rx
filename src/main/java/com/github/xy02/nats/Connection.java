@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 
 public class Connection implements IConnection {
 
-    public Connection(){
+    public Connection() {
         this(new Options());
     }
 
@@ -56,10 +56,11 @@ public class Connection implements IConnection {
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
         Disposable d = osSubject.doOnNext(os -> os.write(subMessage))
-                .doOnNext(x->System.out.println("write"))
+                .doOnNext(os -> os.flush())
+                .doOnNext(x -> System.out.println("write"))
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .doOnDispose(() -> {
-                    System.out.printf("subscribeMsg doOnDispose, tid:%d",Thread.currentThread().getId());
+                    System.out.printf("subscribeMsg doOnDispose, tid:%d", Thread.currentThread().getId());
                     singleOutputStream
                             .doOnSuccess(os -> os.write(unsubMessage))
                             .subscribe(os -> {
@@ -104,62 +105,63 @@ public class Connection implements IConnection {
             int temp = 0;
             int read;
             while ((read = inputStream.read(buf, temp, buf.length - temp)) != -1) {
+                read += temp;
                 int offset = 0;
                 for (int i = 0; i < read; i++) {
                     byte b = buf[i];
-                    if (b == 32) {
+                    if (b == 32 || b == 13) {
                         if (i != offset)
                             list.add(new String(buf, offset, i - offset));
                         offset = i + 1;
-                        continue;
-                    }
-                    if (b == 13) {
-                        if (i != offset)
-                            list.add(new String(buf, offset, i - offset));
-                        offset = i + 1;
-                        switch (list.get(0)) {
-                            case TYPE_INFO:
-                                emitter.onNext(new INFO(list.get(1)));
-                                break;
-                            case TYPE_MSG:
-                                offset = readMSG(list, inputStream, emitter, offset + 1);
-                                i = offset - 1;
-                                break;
-                            case TYPE_PING:
-                                emitter.onNext(new PING());
-                                break;
-                            case TYPE_PONG:
-                                emitter.onNext(new PONG());
-                                break;
-                            case TYPE_OK:
-                                emitter.onNext(new OK());
-                                break;
-                            case TYPE_ERR:
-                                emitter.onNext(new ERR(list));
-                                break;
-                            default:
-                                throw new Exception("bad message type");
-                        }
-                        list = new ArrayList<>();
                         continue;
                     }
                     if (b == 10) {
+                        if (list.size() != 0) {
+                            switch (list.get(0)) {
+                                case TYPE_INFO:
+                                    emitter.onNext(new INFO(list.get(1)));
+                                    break;
+                                case TYPE_MSG:
+                                    offset = readMSG(list, inputStream, emitter, i + 1, read) - 1;
+//                                    System.out.printf("offset:%d\n", offset);
+                                    i = offset;
+                                    break;
+                                case TYPE_PING:
+                                    emitter.onNext(new PING());
+                                    break;
+                                case TYPE_PONG:
+                                    emitter.onNext(new PONG());
+                                    break;
+                                case TYPE_OK:
+                                    emitter.onNext(new OK());
+                                    break;
+                                case TYPE_ERR:
+                                    emitter.onNext(new ERR(list));
+                                    break;
+                                default:
+                                    throw new Exception("bad message type");
+                            }
+                            list = new ArrayList<>();
+                        }
                         offset = i + 1;
                         continue;
                     }
                     if (b < 0)
                         throw new Exception("bad message");
                 }
-                if (offset == read)
+                if (offset == read) {
+                    temp = 0;
                     continue;
+                }
                 //move rest of buf to the start
                 temp = read - offset;
+//                System.out.printf("read:%d, offset:%d, temp:%d\n", read, offset, temp);
                 System.arraycopy(buf, offset, buf, 0, temp);
             }
         }).subscribeOn(Schedulers.newThread());
     }
 
-    private int readMSG(ArrayList<String> list, InputStream inputStream, ObservableEmitter<Message> emitter, int offset) throws Exception {
+    private int readMSG(ArrayList<String> list, InputStream inputStream, ObservableEmitter<Message> emitter, int offset, int max) throws Exception {
         if (list.size() < 4)
             throw new Exception("wrong msg");
         String subject = list.get(1);
@@ -173,21 +175,30 @@ public class Connection implements IConnection {
             length = Integer.parseInt(list.get(4));
         }
         byte[] data = new byte[length];
+        int lengthWithCRLF = length + 2;
         //first,copy from buf to data
-        if (offset + length > buf.length) {
-            int index = buf.length - offset;
-            System.arraycopy(buf, offset, data, 0, index);
-            offset = buf.length;
-            //read rest data
-            while (index < length) {
-                int read = inputStream.read(data, index, length - index);
-                if (read == -1)
-                    throw new Exception("read -1");
-                index += read;
+        if (offset + lengthWithCRLF > max) {
+//            System.out.printf("offset:%d, length:%d-------------------", offset, length);
+            int index = max - offset;
+            if (index> length){
+                //superfluous CR
+                System.arraycopy(buf, offset, data, 0, length);
+                offset += length;
+            }else{
+                System.arraycopy(buf, offset, data, 0, index);
+                //read rest data
+                while (index < length) {
+                    int read = inputStream.read(data, index, length - index);
+                    if (read == -1)
+                        throw new Exception("read -1");
+                    index += read;
+                }
+                offset = max;
             }
+
         } else {
             System.arraycopy(buf, offset, data, 0, length);
-            offset += length;
+            offset += lengthWithCRLF;
         }
         emitter.onNext(new MSG(subject, Integer.parseInt(sid), replyTo, data));
         return offset;

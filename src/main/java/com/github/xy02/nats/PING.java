@@ -10,7 +10,7 @@ public class PING implements Message {
     public Completable handle(Connection connection) {
         return connection.singleOutputStream
                 .doOnSuccess(outputStream -> outputStream.write(BUFFER_PONG))
-                .subscribeOn(Schedulers.single())
+                .subscribeOn(Schedulers.io())
                 .toCompletable();
     }
 }

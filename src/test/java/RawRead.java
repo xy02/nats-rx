@@ -13,7 +13,7 @@ public class RawRead {
             InputStream is = socket.getInputStream();
             byte[] BUFFER_CONNECT = "CONNECT {\"verbose\":false,\"pedantic\":false,\"tls_required\":false,\"name\":\"\",\"lang\":\"java\",\"version\":\"0.2.3\",\"protocol\":0}\r\n".getBytes();
             os.write(BUFFER_CONNECT);
-            byte[] sub = "SUB test 1\r\n".getBytes();
+            byte[] sub = "SUB test3 1\r\n".getBytes();
             os.write(sub);
             os.flush();
             int size = "MSG test 1 5\r\nhello\r\n".getBytes().length;

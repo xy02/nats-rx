@@ -19,7 +19,7 @@ public class MSG implements Message {
     @Override
     public Completable handle(Connection connection) {
         return Completable.create(emitter -> {
-            System.out.println(new String(body));
+//            System.out.println(new String(body));
             emitter.onComplete();
         });
     }
