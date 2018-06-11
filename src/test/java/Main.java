@@ -12,11 +12,13 @@ public class Main {
         try {
 
             IConnection nc = new Connection();
-            nc.connect().subscribe();
+            nc.connect()
+//                    .doOnNext(t -> System.out.printf("Received a message: %s\n", t))
+                    .subscribe();
 
 //            Client nc = new Client("127.0.0.1");
             nc.subscribeMsg("test1")
-                    .doOnNext(msg -> System.out.printf("Received a message: %s\n", new String(msg.getBody())))
+//                    .doOnNext(msg -> System.out.printf("Received a message: %s\n", new String(msg.getBody())))
 //                .take(2)
                     .subscribe(msg -> {
                     }, err -> {

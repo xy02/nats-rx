@@ -2,7 +2,6 @@ package com.github.xy02.nats;
 
 import io.reactivex.Completable;
 import io.reactivex.Observable;
-import io.reactivex.ObservableEmitter;
 import io.reactivex.Single;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
@@ -14,7 +13,6 @@ import java.io.BufferedOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 
 public class Connection implements IConnection {
@@ -28,18 +26,18 @@ public class Connection implements IConnection {
     }
 
     @Override
-    public Completable connect() {
-        return Observable.<InputStream>create(emitter -> {
+    public Observable<String> connect() {
+        return Single.<InputStream>create(emitter -> {
             System.out.printf("create, tid:%d\n", Thread.currentThread().getId());
             socket = new Socket(options.getHost(), options.getPort());
             OutputStream os = new BufferedOutputStream(socket.getOutputStream(), 1024 * 64);
-//            os.write(BUFFER_CONNECT);
+            os.write(BUFFER_CONNECT);
             osSubject.onNext(os);
-            emitter.onNext(socket.getInputStream());
-            emitter.onComplete();
+            emitter.onSuccess(socket.getInputStream());
         }).subscribeOn(Schedulers.io())
-                .flatMap(this::readMessage)
-                .flatMapCompletable(message -> message.handle(this))
+                .flatMapObservable(this::parseMessage)
+//                .flatMap(this::readMessage)
+//                .flatMapCompletable(message -> message.handle(this))
                 .doOnDispose(() -> {
                     socket.close();
                 });
@@ -94,14 +92,15 @@ public class Connection implements IConnection {
     private Options options;
     private Socket socket;
     private byte[] buf = new byte[1024 * 64];
+    String[] fragmentArr = new String[10];
     private Subject<OutputStream> osSubject = BehaviorSubject.create();
     Single<OutputStream> singleOutputStream = osSubject.take(1).singleOrError();
     Subject<Boolean> pongSubject = PublishSubject.create();
     Subject<MSG> msgSubject = PublishSubject.create();
 
-    private Observable<Message> readMessage(InputStream inputStream) {
-        return Observable.<Message>create(emitter -> {
-            ArrayList<String> list = new ArrayList<>();
+    private Observable<String> parseMessage(InputStream inputStream) {
+        return Observable.create(emitter -> {
+            int fragment = 0;
             int temp = 0;
             int read;
             while ((read = inputStream.read(buf, temp, buf.length - temp)) != -1) {
@@ -110,44 +109,48 @@ public class Connection implements IConnection {
                 for (int i = 0; i < read; i++) {
                     byte b = buf[i];
                     if (b == 32 || b == 13) {
-                        if (i != offset)
-                            list.add(new String(buf, offset, i - offset));
-                        offset = i + 1;
-                        continue;
-                    }
-                    if (b == 10) {
-                        if (list.size() != 0) {
-                            switch (list.get(0)) {
-                                case TYPE_INFO:
-                                    emitter.onNext(new INFO(list.get(1)));
-                                    break;
-                                case TYPE_MSG:
-                                    offset = readMSG(list, inputStream, emitter, i + 1, read) - 1;
-//                                    System.out.printf("offset:%d\n", offset);
-                                    i = offset;
-                                    break;
-                                case TYPE_PING:
-                                    emitter.onNext(new PING());
-                                    break;
-                                case TYPE_PONG:
-                                    emitter.onNext(new PONG());
-                                    break;
-                                case TYPE_OK:
-                                    emitter.onNext(new OK());
-                                    break;
-                                case TYPE_ERR:
-                                    emitter.onNext(new ERR(list));
-                                    break;
-                                default:
-                                    throw new Exception("bad message type");
-                            }
-                            list = new ArrayList<>();
+                        if (i != offset) {
+                            fragmentArr[fragment] = new String(buf, offset, i - offset);
+                            fragment++;
                         }
                         offset = i + 1;
                         continue;
                     }
-                    if (b < 0)
-                        throw new Exception("bad message");
+                    if (b == 10) {
+                        if (fragment != 0) {
+                            String messageType = fragmentArr[0];
+                            emitter.onNext(messageType);
+                            switch (messageType) {
+                                case TYPE_INFO:
+                                    //emitter.onNext(new INFO(list.get(1)));
+                                    break;
+                                case TYPE_MSG:
+                                    offset = parseMSG(fragmentArr, fragment, inputStream, i + 1, read) - 1;
+//                                    System.out.printf("offset:%d\n", offset);
+                                    i = offset;
+                                    break;
+                                case TYPE_PING:
+                                    //emitter.onNext(new PING());
+                                    break;
+                                case TYPE_PONG:
+                                    //emitter.onNext(new PONG());
+                                    break;
+                                case TYPE_OK:
+                                    //emitter.onNext(new OK());
+                                    break;
+                                case TYPE_ERR:
+                                    //emitter.onNext(new ERR(list));
+                                    break;
+                                default:
+                                    throw new Exception("bad message type");
+                            }
+                            fragment = 0;
+                        }
+                        offset = i + 1;
+                        continue;
+                    }
+//                    if (b < 0)
+//                        throw new Exception("bad message");
                 }
                 if (offset == read) {
                     temp = 0;
@@ -158,33 +161,32 @@ public class Connection implements IConnection {
 //                System.out.printf("read:%d, offset:%d, temp:%d\n", read, offset, temp);
                 System.arraycopy(buf, offset, buf, 0, temp);
             }
-        }).subscribeOn(Schedulers.newThread());
+
+        });
     }
 
-    private int readMSG(ArrayList<String> list, InputStream inputStream, ObservableEmitter<Message> emitter, int offset, int max) throws Exception {
-        if (list.size() < 4)
-            throw new Exception("wrong msg");
-        String subject = list.get(1);
-        String sid = list.get(2);
+    private int parseMSG(String[] arr, int fragment, InputStream inputStream, int offset, int max) throws Exception {
+        String subject = arr[1];
+        String sid = arr[2];
         String replyTo = "";
         int length;
-        if (list.size() == 4)
-            length = Integer.parseInt(list.get(3));
+        if (fragment == 4)
+            length = Integer.parseInt(arr[3]);
         else {
-            replyTo = list.get(3);
-            length = Integer.parseInt(list.get(4));
+            replyTo = arr[3];
+            length = Integer.parseInt(arr[4]);
         }
         byte[] data = new byte[length];
         int lengthWithCRLF = length + 2;
-        //first,copy from buf to data
         if (offset + lengthWithCRLF > max) {
 //            System.out.printf("offset:%d, length:%d-------------------", offset, length);
             int index = max - offset;
-            if (index> length){
+            if (index > length) {
                 //superfluous CR
                 System.arraycopy(buf, offset, data, 0, length);
                 offset += length;
-            }else{
+            } else {
+                //first,copy from buf to data
                 System.arraycopy(buf, offset, data, 0, index);
                 //read rest data
                 while (index < length) {
@@ -200,7 +202,7 @@ public class Connection implements IConnection {
             System.arraycopy(buf, offset, data, 0, length);
             offset += lengthWithCRLF;
         }
-        emitter.onNext(new MSG(subject, Integer.parseInt(sid), replyTo, data));
+        msgSubject.onNext(new MSG(subject, Integer.parseInt(sid), replyTo, data));
         return offset;
     }
 

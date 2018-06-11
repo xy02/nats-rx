@@ -5,7 +5,7 @@ import io.reactivex.Observable;
 
 public interface IConnection {
     //call dispose() to disconnect.
-    Completable connect();
+    Observable<String> connect();
     //call dispose() to unsubscribeMsg.
     Observable<MSG> subscribeMsg(String subject);
     //call dispose() to unsubscribeMsg.
