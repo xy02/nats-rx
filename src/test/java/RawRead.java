@@ -19,16 +19,18 @@ public class RawRead {
             int size = "MSG test 1 5\r\nhello\r\n".getBytes().length;
             int pre = "{\"server_id\":\"ev5HIpmsJeOkJu14AgvTdA\",\"version\":\"1.1.1\",\"git_commit\":\"\",\"go\":\"go1.10.2\",\"host\":\"0.0.0.0\",\"port\":4222,\"auth_required\":false,\"tls_required\":false,\"tls_verify\":false,\"max_payload\":1048576}".getBytes().length;
             Observable.timer(15,TimeUnit.SECONDS)
-                    .subscribe(z-> System.out.printf("read: %d, times:%d\n", (read-pre)/size, times));
+                    .doOnNext(z-> System.out.printf("read: %d, times:%d\n", (read-pre)/size, times))
+                    .subscribe();
             byte[] buf = new byte[1024*64];
 
             Observable.create(emitter -> {
                 while (true) {
                     read+=is.read(buf);
-//                    times++;
+                    times++;
                     emitter.onNext(read);
                 }
-            }).doOnNext(x->System.out.println(++times))
+            })
+//                    .doOnNext(x->System.out.println(++times))
                     .subscribe();
         } catch (IOException e) {
             e.printStackTrace();

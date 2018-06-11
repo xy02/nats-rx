@@ -13,6 +13,7 @@ import java.io.BufferedOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 
 public class Connection implements IConnection {
@@ -53,18 +54,17 @@ public class Connection implements IConnection {
         final int _sid = ++sid;
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
-        Disposable d = osSubject.doOnNext(os -> os.write(subMessage))
-                .doOnNext(os -> os.flush())
+        Disposable d = osSubject.doOnNext(os -> outputSubject.onNext(subMessage))
                 .doOnNext(x -> System.out.println("write"))
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .doOnDispose(() -> {
                     System.out.printf("subscribeMsg doOnDispose, tid:%d", Thread.currentThread().getId());
                     singleOutputStream
-                            .doOnSuccess(os -> os.write(unsubMessage))
+                            .doOnSuccess(os -> outputSubject.onNext(unsubMessage))
                             .subscribe(os -> {
                             }, Throwable::printStackTrace);
                 })
-                .subscribeOn(Schedulers.single())
+//                .subscribeOn(Schedulers.io())
                 .subscribe();
         //need improve
         return msgSubject.filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
@@ -73,7 +73,15 @@ public class Connection implements IConnection {
 
     @Override
     public Completable publish(MSG msg) {
-        return null;
+        int bodyLength = msg.getBody().length;
+        byte[] message = ("PUB " + msg.getSubject() + " " + msg.getReplyTo() + " " + bodyLength + "\r\n").getBytes();
+        byte[] data = ByteBuffer.allocate(message.length + bodyLength + 2).put(message).put(msg.getBody()).put(BUFFER_CRLF).array();
+        return singleOutputStream
+//                .doOnSuccess(x-> System.out.printf("write tid:%d\n", Thread.currentThread().getId()))
+                .doOnSuccess(os -> os.write(data))
+                .subscribeOn(Schedulers.io())
+                .observeOn(Schedulers.computation())
+                .toCompletable();
     }
 
     @Override
@@ -82,6 +90,8 @@ public class Connection implements IConnection {
     }
 
     private final static byte[] BUFFER_CONNECT = "CONNECT {\"verbose\":false,\"pedantic\":false,\"tls_required\":false,\"name\":\"\",\"lang\":\"java\",\"version\":\"0.2.3\",\"protocol\":0}\r\n".getBytes();
+    private final static byte[] BUFFER_PONG = "PONG\r\n".getBytes();
+    private final static byte[] BUFFER_CRLF = "\r\n".getBytes();
     private final static String TYPE_INFO = "INFO";
     private final static String TYPE_MSG = "MSG";
     private final static String TYPE_PING = "PING";
@@ -94,9 +104,20 @@ public class Connection implements IConnection {
     private byte[] buf = new byte[1024 * 64];
     String[] fragmentArr = new String[10];
     private Subject<OutputStream> osSubject = BehaviorSubject.create();
-    Single<OutputStream> singleOutputStream = osSubject.take(1).singleOrError();
+    private Single<OutputStream> singleOutputStream = osSubject.take(1).singleOrError();
     Subject<Boolean> pongSubject = PublishSubject.create();
     Subject<MSG> msgSubject = PublishSubject.create();
+    private Subject<byte[]> outputSubject = PublishSubject.create();
+    private Disposable outputDisposable = outputSubject
+            .flatMapSingle(data -> singleOutputStream.doOnSuccess(outputStream -> outputStream.write(data)))
+            .retry()
+//            .subscribeOn(Schedulers.io())
+            .subscribe();
+    private Disposable flushOutputDisposable = Observable.interval(0, 100, TimeUnit.MICROSECONDS)
+            .flatMapSingle(x -> singleOutputStream.doOnSuccess(OutputStream::flush))
+            .retry()
+//            .subscribeOn(Schedulers.io())
+            .subscribe();
 
     private Observable<String> parseMessage(InputStream inputStream) {
         return Observable.create(emitter -> {
@@ -130,7 +151,7 @@ public class Connection implements IConnection {
                                     i = offset;
                                     break;
                                 case TYPE_PING:
-                                    //emitter.onNext(new PING());
+                                    outputSubject.onNext(BUFFER_PONG);
                                     break;
                                 case TYPE_PONG:
                                     //emitter.onNext(new PONG());

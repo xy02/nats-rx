@@ -1,8 +1,10 @@
 import com.github.xy02.nats.Client;
 import com.github.xy02.nats.Connection;
 import com.github.xy02.nats.IConnection;
+import com.github.xy02.nats.MSG;
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
 
 import java.util.concurrent.TimeUnit;
 
@@ -17,21 +19,25 @@ public class Main {
                     .subscribe();
 
 //            Client nc = new Client("127.0.0.1");
-            nc.subscribeMsg("test1")
-//                    .doOnNext(msg -> System.out.printf("Received a message: %s\n", new String(msg.getBody())))
-//                .take(2)
-                    .subscribe(msg -> {
-                    }, err -> {
-                    }, () -> System.out.println("subscribeMsg onComplete"));
+//            nc.subscribeMsg("test1")
+//                    .doOnNext(msg->send++)
+////                    .doOnNext(msg -> System.out.printf("Received a message: %s\n", new String(msg.getBody())))
+////                .take(2)
+//                    .subscribe(msg -> {
+//                    }, err -> {
+//                    }, () -> System.out.println("subscribeMsg onComplete"));
 //
-//            MSG testMsg = new MSG("test", "hello".getBytes());
-//            Observable.interval(0, 1, TimeUnit.NANOSECONDS)
-//                    .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
-//                    .flatMapCompletable(x -> client.publish(testMsg))
-////                    .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
-//                    .subscribe();
+            MSG testMsg = new MSG("test3", "hello".getBytes());
+//            publish(nc,testMsg);
+            Observable.interval(0, 1, TimeUnit.NANOSECONDS)
+                    .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
+                    .flatMapCompletable(x -> nc.publish(testMsg))
+//                    .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
+                    .subscribe();
 
-//            Observable.timer(5, TimeUnit.SECONDS)
+            Observable.timer(11, TimeUnit.SECONDS)
+                    .doOnComplete(() -> System.out.printf("send: %d\n", send))
+                    .subscribe();
 //                    .subscribe(x -> client.close());
 
 //            Observable.interval(0, 40, TimeUnit.MICROSECONDS)
