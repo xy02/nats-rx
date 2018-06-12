@@ -1,6 +1,5 @@
 package com.github.xy02.nats;
 
-import io.reactivex.Completable;
 import io.reactivex.Observable;
 import io.reactivex.Single;
 import io.reactivex.disposables.Disposable;
@@ -44,8 +43,8 @@ public class Connection implements IConnection {
     }
 
     @Override
-    public synchronized Observable<MSG> subscribeMsg(String subject, String queue) {
-        final int _sid = ++sid;
+    public Observable<MSG> subscribeMsg(String subject, String queue) {
+        int _sid = plusSid();
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
         Disposable d = osSubject.doOnNext(x -> outputSubject.onNext(subMessage))
@@ -53,14 +52,10 @@ public class Connection implements IConnection {
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .doOnDispose(() -> {
                     System.out.printf("subscribeMsg doOnDispose, tid:%d", Thread.currentThread().getId());
-                    singleOutputStream
-                            .doOnSuccess(os -> outputSubject.onNext(unsubMessage))
-                            .subscribe(os -> {
-                            }, Throwable::printStackTrace);
+                    outputSubject.onNext(unsubMessage);
                 })
                 .subscribe();
-        //need improve
-        return msgSubject.filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
+        return msgSubject.filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject))
                 .doOnDispose(d::dispose);
     }
 
@@ -73,12 +68,18 @@ public class Connection implements IConnection {
     }
 
     @Override
-    public Completable ping() {
-        return null;
+    public Single<Long> ping(TimeUnit unit) {
+        return Observable.interval(0, 1, unit)
+                .doOnSubscribe(d -> outputSubject.onNext(BUFFER_PING))
+                .takeUntil(onPongSubject)
+                .takeLast(1)
+                .singleOrError()
+                .timeout(5, TimeUnit.SECONDS);
     }
 
     private final static byte[] BUFFER_CONNECT = "CONNECT {\"verbose\":false,\"pedantic\":false,\"tls_required\":false,\"name\":\"\",\"lang\":\"java\",\"version\":\"0.2.3\",\"protocol\":0}\r\n".getBytes();
     private final static byte[] BUFFER_PONG = "PONG\r\n".getBytes();
+    private final static byte[] BUFFER_PING = "PING\r\n".getBytes();
     private final static byte[] BUFFER_CRLF = "\r\n".getBytes();
     private final static String TYPE_INFO = "INFO";
     private final static String TYPE_MSG = "MSG";
@@ -95,9 +96,13 @@ public class Connection implements IConnection {
     private String[] fragmentArr = new String[10];
     private Subject<OutputStream> osSubject = BehaviorSubject.create();
     private Single<OutputStream> singleOutputStream = osSubject.take(1).singleOrError();
-    Subject<Boolean> pongSubject = PublishSubject.create();
+    private Subject<Boolean> onPongSubject = PublishSubject.create();
     private Subject<MSG> msgSubject = PublishSubject.create();
     private Subject<byte[]> outputSubject = PublishSubject.create();
+
+    private synchronized int plusSid() {
+        return ++sid;
+    }
 
     private Observable<String> flushData = Observable.interval(0, 100, TimeUnit.MICROSECONDS)
             .flatMapSingle(x -> singleOutputStream.doOnSuccess(OutputStream::flush))
@@ -105,7 +110,6 @@ public class Connection implements IConnection {
 
     private Observable<String> writeData = outputSubject
             .flatMapSingle(data -> singleOutputStream.doOnSuccess(outputStream -> outputStream.write(data)))
-            .doOnSubscribe(d -> System.out.println(Thread.currentThread().getName()))
             .map(x -> TYPE_WRITE);
 
     private Observable<String> readData = Single.<InputStream>create(emitter -> {
@@ -141,7 +145,7 @@ public class Connection implements IConnection {
                             emitter.onNext(messageType);
                             switch (messageType) {
                                 case TYPE_INFO:
-                                    //emitter.onNext(new INFO(list.get(1)));
+                                    System.out.println(fragmentArr[1]);
                                     break;
                                 case TYPE_MSG:
                                     offset = parseMSG(fragmentArr, fragment, inputStream, i + 1, read) - 1;
@@ -152,13 +156,15 @@ public class Connection implements IConnection {
                                     outputSubject.onNext(BUFFER_PONG);
                                     break;
                                 case TYPE_PONG:
-                                    //emitter.onNext(new PONG());
+                                    onPongSubject.onNext(true);
                                     break;
                                 case TYPE_OK:
-                                    //emitter.onNext(new OK());
+                                    System.out.println(TYPE_OK);
                                     break;
                                 case TYPE_ERR:
-                                    //emitter.onNext(new ERR(list));
+                                    for (int x = 0; x < fragment; x++)
+                                        System.out.printf("%s ", fragmentArr[x]);
+                                    System.out.println();
                                     break;
                                 default:
                                     throw new Exception("bad message type");
@@ -180,7 +186,7 @@ public class Connection implements IConnection {
 //                System.out.printf("read:%d, offset:%d, temp:%d\n", read, offset, temp);
                 System.arraycopy(buf, offset, buf, 0, temp);
             }
-
+            throw new Exception("read -1");
         });
     }
 

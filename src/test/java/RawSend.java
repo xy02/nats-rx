@@ -15,9 +15,9 @@ public class RawSend {
             byte[] BUFFER_CONNECT = "CONNECT {\"verbose\":false,\"pedantic\":false,\"tls_required\":false,\"name\":\"\",\"lang\":\"java\",\"version\":\"0.2.3\",\"protocol\":0}\r\n".getBytes();
             os.write(BUFFER_CONNECT);
             os.flush();
-            byte[] data = "PUB sub1 5\r\nhello\r\n".getBytes();
+            byte[] data = "PUB raw 5\r\nhello\r\n".getBytes();
             Observable.interval(0, 1, TimeUnit.NANOSECONDS)
-//                    .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
+                    .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
                     .doOnNext(x -> {
                         os.write(data);
                         ++send;

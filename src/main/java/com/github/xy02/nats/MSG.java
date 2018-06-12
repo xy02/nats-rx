@@ -1,8 +1,6 @@
 package com.github.xy02.nats;
 
-import io.reactivex.Completable;
-
-public class MSG implements Message {
+public class MSG {
     private String subject;
     private int sid;
     private String replyTo;
@@ -16,15 +14,8 @@ public class MSG implements Message {
         this(subject, 0, replyTo, body);
     }
 
-    @Override
-    public Completable handle(Connection connection) {
-        return Completable.create(emitter -> {
-//            System.out.println(new String(body));
-            emitter.onComplete();
-        });
-    }
 
-    protected MSG(String subject, int sid, String replyTo, byte[] body) {
+    MSG(String subject, int sid, String replyTo, byte[] body) {
         this.subject = subject;
         this.sid = sid;
         this.replyTo = replyTo;
