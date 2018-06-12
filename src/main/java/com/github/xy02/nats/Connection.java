@@ -28,21 +28,14 @@ public class Connection implements IConnection {
 
     @Override
     public Observable<String> connect() {
-        return Single.<InputStream>create(emitter -> {
-            System.out.printf("create, tid:%d\n", Thread.currentThread().getId());
-            socket = new Socket(options.getHost(), options.getPort());
-            OutputStream os = new BufferedOutputStream(socket.getOutputStream(), 1024 * 64);
-            os.write(BUFFER_CONNECT);
-            osSubject.onNext(os);
-            emitter.onSuccess(socket.getInputStream());
-        })
-                .flatMapObservable(this::parseMessage)
-//                .flatMap(this::readMessage)
-//                .flatMapCompletable(message -> message.handle(this))
+        return flushData
+                .mergeWith(writeData)
+                .mergeWith(readData)
+                .doOnError(t -> socket.close())
+                .doOnDispose(() -> socket.close())
                 .subscribeOn(Schedulers.io())
-                .doOnDispose(() -> {
-                    socket.close();
-                });
+//                .observeOn(Schedulers.newThread())
+                ;
     }
 
     @Override
@@ -56,7 +49,7 @@ public class Connection implements IConnection {
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
         Disposable d = osSubject.doOnNext(x -> outputSubject.onNext(subMessage))
-                .doOnNext(x -> System.out.println("write"))
+                .doOnNext(x -> System.out.println("sub msg"))
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .doOnDispose(() -> {
                     System.out.printf("subscribeMsg doOnDispose, tid:%d", Thread.currentThread().getId());
@@ -65,7 +58,6 @@ public class Connection implements IConnection {
                             .subscribe(os -> {
                             }, Throwable::printStackTrace);
                 })
-//                .subscribeOn(Schedulers.io())
                 .subscribe();
         //need improve
         return msgSubject.filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
@@ -94,26 +86,36 @@ public class Connection implements IConnection {
     private final static String TYPE_PONG = "PONG";
     private final static String TYPE_OK = "+OK";
     private final static String TYPE_ERR = "-ERR";
+    private final static String TYPE_FLUSH = "FLUSH";
+    private final static String TYPE_WRITE = "WRITE";
     private int sid;
     private Options options;
     private Socket socket;
     private byte[] buf = new byte[1024 * 64];
-    String[] fragmentArr = new String[10];
+    private String[] fragmentArr = new String[10];
     private Subject<OutputStream> osSubject = BehaviorSubject.create();
     private Single<OutputStream> singleOutputStream = osSubject.take(1).singleOrError();
     Subject<Boolean> pongSubject = PublishSubject.create();
-    Subject<MSG> msgSubject = PublishSubject.create();
+    private Subject<MSG> msgSubject = PublishSubject.create();
     private Subject<byte[]> outputSubject = PublishSubject.create();
-    private Disposable outputDisposable = outputSubject
-            .flatMapSingle(data -> singleOutputStream.doOnSuccess(outputStream -> outputStream.write(data)))
-            .retry()
-//            .subscribeOn(Schedulers.io())
-            .subscribe();
-    private Disposable flushOutputDisposable = Observable.interval(0, 100, TimeUnit.MICROSECONDS)
+
+    private Observable<String> flushData = Observable.interval(0, 100, TimeUnit.MICROSECONDS)
             .flatMapSingle(x -> singleOutputStream.doOnSuccess(OutputStream::flush))
-            .retry()
-//            .subscribeOn(Schedulers.io())
-            .subscribe();
+            .map(x -> TYPE_FLUSH);
+
+    private Observable<String> writeData = outputSubject
+            .flatMapSingle(data -> singleOutputStream.doOnSuccess(outputStream -> outputStream.write(data)))
+            .doOnSubscribe(d -> System.out.println(Thread.currentThread().getName()))
+            .map(x -> TYPE_WRITE);
+
+    private Observable<String> readData = Single.<InputStream>create(emitter -> {
+        System.out.printf("create, tid:%d\n", Thread.currentThread().getId());
+        socket = new Socket(options.getHost(), options.getPort());
+        OutputStream os = new BufferedOutputStream(socket.getOutputStream(), 1024 * 64);
+        os.write(BUFFER_CONNECT);
+        osSubject.onNext(os);
+        emitter.onSuccess(socket.getInputStream());
+    }).flatMapObservable(this::parseMessage);
 
     private Observable<String> parseMessage(InputStream inputStream) {
         return Observable.create(emitter -> {

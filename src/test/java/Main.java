@@ -23,16 +23,18 @@ public class Main {
 //                .takeUntil(Observable.timer(20, TimeUnit.SECONDS))
                 .doOnNext(msg -> read++)
                 .doOnComplete(() -> System.out.printf("read: %d\n", read))
-//                .doOnNext(msg -> System.out.printf("Received a msg: %s\n", new String(msg.getBody())))
+//                .doOnNext(msg -> System.out.printf("Received a msg: %s, i:%d\n", new String(msg.getBody()),read))
                 .subscribe(msg -> {
                 }, err -> {
                 }, () -> System.out.println("subscribeMsg onComplete"));
 
         nc.connect()
+//                .doOnError(Throwable::printStackTrace)
+                .retryWhen(x->x.delay(1,TimeUnit.SECONDS))
 //                .doOnNext(t -> System.out.printf("Received a message: %s\n", t))
                 .subscribe();
 
-        Observable.interval(1,TimeUnit.MINUTES).subscribe(x-> System.out.printf("%d min read: %d\n",x+1, read));
+        Observable.interval(1,TimeUnit.SECONDS).subscribe(x-> System.out.printf("%d sec read: %d\n",x+1, read));
 
     }
 
