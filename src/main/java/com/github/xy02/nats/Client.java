@@ -33,7 +33,8 @@ public class Client {
             isSubject.onNext(socket.getInputStream());
             osSubject.onNext(os);
             emitter.onComplete();
-        }).subscribeOn(Schedulers.io())
+        })
+                .subscribeOn(Schedulers.newThread())
                 .andThen(readerLatchSubject)
                 .flatMapSingle(x -> readLine(buf))
                 .flatMapSingle(this::handleMessage)
@@ -72,7 +73,6 @@ public class Client {
                             .subscribe(os -> {
                             }, Throwable::printStackTrace);
                 })
-                .subscribeOn(Schedulers.io())
                 .subscribe();
         return msgSubject.filter(msg -> msg.getSubject().equals(subject) && msg.getSid() == _sid)
                 .doOnDispose(d::dispose);

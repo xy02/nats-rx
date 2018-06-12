@@ -11,7 +11,7 @@ public interface IConnection {
     //call dispose() to unsubscribeMsg.
     Observable<MSG> subscribeMsg(String subject, String queue);
     //publish MSG
-    Completable publish(MSG msg);
+    void publish(MSG msg);
     //Received PONG, it completes.
     Completable ping();
 }

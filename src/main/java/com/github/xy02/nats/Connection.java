@@ -35,10 +35,11 @@ public class Connection implements IConnection {
             os.write(BUFFER_CONNECT);
             osSubject.onNext(os);
             emitter.onSuccess(socket.getInputStream());
-        }).subscribeOn(Schedulers.io())
+        })
                 .flatMapObservable(this::parseMessage)
 //                .flatMap(this::readMessage)
 //                .flatMapCompletable(message -> message.handle(this))
+                .subscribeOn(Schedulers.io())
                 .doOnDispose(() -> {
                     socket.close();
                 });
@@ -54,7 +55,7 @@ public class Connection implements IConnection {
         final int _sid = ++sid;
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
-        Disposable d = osSubject.doOnNext(os -> outputSubject.onNext(subMessage))
+        Disposable d = osSubject.doOnNext(x -> outputSubject.onNext(subMessage))
                 .doOnNext(x -> System.out.println("write"))
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .doOnDispose(() -> {
@@ -72,16 +73,11 @@ public class Connection implements IConnection {
     }
 
     @Override
-    public Completable publish(MSG msg) {
+    public void publish(MSG msg) {
         int bodyLength = msg.getBody().length;
         byte[] message = ("PUB " + msg.getSubject() + " " + msg.getReplyTo() + " " + bodyLength + "\r\n").getBytes();
         byte[] data = ByteBuffer.allocate(message.length + bodyLength + 2).put(message).put(msg.getBody()).put(BUFFER_CRLF).array();
-        return singleOutputStream
-//                .doOnSuccess(x-> System.out.printf("write tid:%d\n", Thread.currentThread().getId()))
-                .doOnSuccess(os -> os.write(data))
-                .subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.computation())
-                .toCompletable();
+        outputSubject.onNext(data);
     }
 
     @Override
@@ -227,8 +223,4 @@ public class Connection implements IConnection {
         return offset;
     }
 
-//    private Subject<OutputStream> outputStreamSubject = BehaviorSubject.create();
-//    private Single<OutputStream> singleOutputStream = outputStreamSubject.take(1).singleOrError();
-//    private Subject<byte[]> outputSubject = PublishSubject.create();
-//    private Disposable outputDisp = outputSubject.flatMapSingle().subscribe();
 }
