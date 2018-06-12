@@ -9,32 +9,38 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.xy02:nats-rx:0.2.0'
+    implementation 'com.github.xy02:nats-rx:0.3.0'
 }
 ```
 ## Usage
-Connect:
 ```java
-    Client client = new Client("127.0.0.1");
-```
-Disconnect:
-```java
-    client.close();
-```
-Subscribe message:
-```java
-    client.subscribeMsg("test")
+    //connect
+    IConnection nc = new Connection(new Options());
+    Disposable ncd = nc.connect().subscribe();
+
+    //auto reconnect
+    Disposable ncd = nc.connect()
+            .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
+            .subscribe();
+
+    //disconnect
+    ncd.dispose();
+
+    //subscribe message
+    Disposable sd = nc.subscribeMsg("test")
             .doOnNext(msg -> System.out.println(msg.getSubject() + ", body length:" + msg.getBody().length))
-            .subscribe(msg -> {},err->{},()->System.out.println("subscribeMsg onComplete"));
-```
-Publish message:
-```java
-    Msg testMsg = new Msg("test", "hello".getBytes());
-    client.publish(testMsg)
-            .subscribe(()
-```
-Ping:
-```java
-    client.ping(3, TimeUnit.SECONDS)
-            .subscribe(()
+            .subscribe(msg -> {},err->{},()->System.out.println("subscribeMsg onComplete"))
+
+    //unsubscribe
+    sd.dispose();
+
+    //publish message
+    Msg msg = new Msg("test", "hello".getBytes());
+    client.publish(msg);
+
+    //ping
+    nc.ping(TimeUnit.MICROSECONDS)
+        .doOnSuccess(t->System.out.println("ping μs:"+t))
+        .subscribe();
+
 ```

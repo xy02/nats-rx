@@ -32,7 +32,7 @@ public class Main {
                 }, () -> System.out.println("subscribeMsg onComplete"));
 
         Observable<String> ping = Observable
-                .interval(1, TimeUnit.SECONDS)
+                .interval(10, TimeUnit.SECONDS)
                 .flatMapSingle(l->nc.ping(TimeUnit.MICROSECONDS).map(t->"ping μs:"+t)
                         .doOnSuccess(System.out::println))
                 .retry();
