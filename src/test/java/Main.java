@@ -14,12 +14,12 @@ public class Main {
         Connection nc = new Connection();
 
         MSG testMsg = new MSG(subject, "hello".getBytes());
-//        Observable.interval(0, 1, TimeUnit.NANOSECONDS)
-////                .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
-//                .doOnNext(x -> nc.publish(testMsg))
-//                .doOnComplete(() -> System.out.printf("read: %d\n", read))
-////                    .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
-//                .subscribe();
+        Observable.interval(0, 1, TimeUnit.NANOSECONDS)
+//                .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
+                .doOnNext(x -> nc.publish(testMsg))
+                .doOnComplete(() -> System.out.printf("read: %d\n", read))
+//                    .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
+                .subscribe();
 
         nc.subscribeMsg(subject)
 //                .takeUntil(Observable.timer(20, TimeUnit.SECONDS))  **一用takeUtil，natsCPU翻倍，数据传输变慢25% WTF

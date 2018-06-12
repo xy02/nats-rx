@@ -27,9 +27,9 @@ public class Connection implements IConnection {
 
     @Override
     public Observable<String> connect() {
-        return flushData
-                .mergeWith(writeData)
+        return writeData
                 .mergeWith(readData)
+                .mergeWith(flushData)
                 .doOnError(t -> socket.close())
                 .doOnDispose(() -> socket.close())
                 .subscribeOn(Schedulers.io())
@@ -104,7 +104,7 @@ public class Connection implements IConnection {
         return ++sid;
     }
 
-    private Observable<String> flushData = Observable.interval(0, 100, TimeUnit.MICROSECONDS)
+    private Observable<String> flushData = Observable.interval(10000, 100, TimeUnit.MICROSECONDS)
             .flatMapSingle(x -> singleOutputStream.doOnSuccess(OutputStream::flush))
             .map(x -> TYPE_FLUSH);
 
