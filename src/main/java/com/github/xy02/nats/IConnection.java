@@ -3,11 +3,14 @@ package com.github.xy02.nats;
 import io.reactivex.Observable;
 import io.reactivex.Single;
 
-import java.util.concurrent.TimeUnit;
+import java.io.IOException;
 
 public interface IConnection {
-    //call dispose() to disconnect.
-    Observable<String> connect();
+    //close connection
+    void close() throws IOException;
+
+    //Emit reconnect times.
+    Observable<Long> onReconnect();
 
     //call dispose() to unsubscribeMsg.
     Observable<MSG> subscribeMsg(String subject);
@@ -16,8 +19,8 @@ public interface IConnection {
     Observable<MSG> subscribeMsg(String subject, String queue);
 
     //publish MSG
-    void publish(MSG msg);
+    void publish(MSG msg) throws IOException;
 
-    //return elapsed time on PONG
-    Single<Long> ping(TimeUnit unit);
+    //emit elapsed time(ms) on PONG
+    Single<Long> ping();
 }

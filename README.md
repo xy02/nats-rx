@@ -16,15 +16,6 @@ dependencies {
 ```java
     //connect
     IConnection nc = new Connection(new Options());
-    Disposable ncd = nc.connect().subscribe();
-
-    //auto reconnect
-    Disposable ncd = nc.connect()
-            .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
-            .subscribe();
-
-    //disconnect
-    ncd.dispose();
 
     //subscribe message
     Disposable sd = nc.subscribeMsg("test")
@@ -39,8 +30,11 @@ dependencies {
     client.publish(msg);
 
     //ping
-    nc.ping(TimeUnit.MICROSECONDS)
-        .doOnSuccess(t->System.out.println("ping μs:"+t))
+    nc.ping()
+        .doOnSuccess(t->System.out.println("ping ms:"+t))
         .subscribe();
+
+    //disconnect
+    nc.close();
 
 ```

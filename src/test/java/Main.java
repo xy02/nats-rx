@@ -1,51 +1,13 @@
 import com.github.xy02.nats.Connection;
 import com.github.xy02.nats.MSG;
 import io.reactivex.Observable;
+import io.reactivex.Single;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
 
 import java.util.concurrent.TimeUnit;
 
 public class Main {
-
-    public long read = 0;
-
-    public long length = 0;
-
-    public void test(String subject) {
-        Connection nc = new Connection();
-
-        MSG testMsg = new MSG(subject, "hello".getBytes());
-        Observable.interval(0, 1, TimeUnit.NANOSECONDS)
-//                .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
-                .doOnNext(x -> nc.publish(testMsg))
-                .doOnComplete(() -> System.out.printf("read: %d\n", read))
-//                    .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
-                .subscribe();
-
-        nc.subscribeMsg(subject)
-//                .takeUntil(Observable.timer(20, TimeUnit.SECONDS))  **一用takeUtil，natsCPU翻倍，数据传输变慢25% WTF
-                .doOnComplete(() -> System.out.printf("read: %d\n", read))
-                .doOnNext(msg -> read++)
-//                .doOnNext(msg -> length += msg.getBody().length)
-//                .doOnNext(msg -> System.out.printf("Received a msg: %s, i:%d\n", new String(msg.getBody()),read))
-                .subscribe(msg -> {
-                }, err -> {
-                }, () -> System.out.println("subscribeMsg onComplete"));
-
-        Observable<String> ping = Observable
-                .interval(10, TimeUnit.SECONDS)
-                .flatMapSingle(l->nc.ping(TimeUnit.MICROSECONDS).map(t->"ping μs:"+t)
-                        .doOnSuccess(System.out::println))
-                .retry();
-        nc.connect()
-//                .doOnError(Throwable::printStackTrace)
-                .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
-//                .doOnNext(t -> System.out.printf("Received a message: %s\n", t))
-                .mergeWith(ping)
-                .subscribe();
-
-        Observable.interval(1, TimeUnit.SECONDS).subscribe(x -> System.out.printf("%d sec read: %d, body length: %d\n", x + 1, read, length));
-    }
-
 
     public static void main(String[] args) {
         try {
@@ -59,6 +21,70 @@ public class Main {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    public long read = 0;
+
+    public long length = 0;
+
+    public void test(String subject) {
+        Single.create(emitter -> {
+            //create connection
+            Connection nc = new Connection();
+            //sub
+            Disposable sub = nc.subscribeMsg(subject)
+//                .takeUntil(Observable.timer(20, TimeUnit.SECONDS))  **一用takeUtil，natsCPU翻倍，数据传输变慢25% WTF
+                    .doOnComplete(() -> System.out.printf("read: %d\n", read))
+                    .doOnNext(msg -> read++)
+//                .doOnNext(msg -> length += msg.getBody().length)
+//                .doOnNext(msg -> System.out.printf("Received a msg: %s, i:%d\n", new String(msg.getBody()),read))
+                    .subscribe(msg -> {
+                    }, err -> {
+                    }, () -> System.out.println("subscribeMsg onComplete"));
+            //close
+//            Observable.timer(10, TimeUnit.SECONDS)
+//                    .doOnComplete(() -> sub.dispose())
+//                    .subscribe();
+//            Observable.timer(3, TimeUnit.SECONDS)
+//                    .doOnComplete(() -> nc.close())
+//                    .subscribe();
+            //pub
+            MSG testMsg = new MSG(subject, "hello".getBytes());
+            Observable.create(emitter1 -> {
+                System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
+                while (true) {
+                    nc.publish(testMsg);
+                    //Thread.sleep(1000);
+                }
+            }).subscribeOn(Schedulers.io())
+                    .subscribe(x->{},err->{});
+            Observable.create(emitter1 -> {
+                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());
+                while (true) {
+                    nc.publish(testMsg);
+//                    Thread.sleep(1000);
+                }
+            }).subscribeOn(Schedulers.io())
+                    .subscribe(x->{},err->{});
+            ;
+            //ping
+            Observable
+                    .interval(10, TimeUnit.SECONDS)
+                    .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
+                            .doOnSuccess(System.out::println))
+                    .retry()
+                    .subscribe()
+            ;
+            //log
+            Observable.interval(1, TimeUnit.SECONDS)
+                    .subscribe(x -> System.out.printf("%d sec read: %d, ops: %d/s\n", x + 1, read, read / (x + 1)))
+            ;
+
+        })
+                .doOnError(Throwable::printStackTrace)
+                .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
+                .subscribe()
+        ;
     }
 
 }
