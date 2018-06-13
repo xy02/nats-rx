@@ -117,7 +117,9 @@ public class Connection implements IConnection {
     private synchronized void init(Options options) throws IOException {
         Socket socket = new Socket(options.getHost(), options.getPort());
         OutputStream os = socket.getOutputStream();
-        os.write(BUFFER_CONNECT);
+        Single.just(1)
+                .subscribeOn(Schedulers.io())
+                .subscribe(x->os.write(BUFFER_CONNECT));
         OutputStream outputStream = new BufferedOutputStream(os, 1024 * 64);
         InputStream inputStream = socket.getInputStream();
         System.out.printf("connect on :%s\n", Thread.currentThread().getName());

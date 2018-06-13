@@ -33,7 +33,7 @@ public class Main {
             Connection nc = new Connection();
             //sub
             Disposable sub = nc.subscribeMsg(subject)
-//                .takeUntil(Observable.timer(20, TimeUnit.SECONDS))  **一用takeUtil，natsCPU翻倍，数据传输变慢25% WTF
+//                .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
                     .doOnComplete(() -> System.out.printf("read: %d\n", read))
                     .doOnNext(msg -> read++)
 //                .doOnNext(msg -> length += msg.getBody().length)
@@ -62,12 +62,12 @@ public class Main {
                     }, err -> {
                     });
             //ping
-            Observable
-                    .interval(3, TimeUnit.SECONDS)
-                    .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
-                            .doOnSuccess(System.out::println))
-                    .retry()
-                    .subscribe()
+//            Observable
+//                    .interval(3, TimeUnit.SECONDS)
+//                    .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
+//                            .doOnSuccess(System.out::println))
+//                    .retry()
+//                    .subscribe()
             ;
             //log
             Observable.interval(1, TimeUnit.SECONDS)
