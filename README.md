@@ -9,7 +9,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.xy02:nats-rx:0.3.1'
+    implementation 'com.github.xy02:nats-rx:0.3.2'
 }
 ```
 ## Usage
@@ -26,7 +26,7 @@ dependencies {
     sd.dispose();
 
     //publish message
-    Msg msg = new Msg("test", "hello".getBytes());
+    MSG msg = new MSG("test", "hello".getBytes());
     client.publish(msg);
 
     //ping

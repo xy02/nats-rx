@@ -3,11 +3,9 @@ package com.github.xy02.nats;
 import io.reactivex.Observable;
 import io.reactivex.Single;
 
-import java.io.IOException;
-
 public interface IConnection {
     //close connection
-    void close() throws IOException;
+    void close();
 
     //Emit reconnect times.
     Observable<Long> onReconnect();
@@ -19,7 +17,7 @@ public interface IConnection {
     Observable<MSG> subscribeMsg(String subject, String queue);
 
     //publish MSG
-    void publish(MSG msg) throws IOException;
+    void publish(MSG msg);
 
     //emit elapsed time(ms) on PONG
     Single<Long> ping();

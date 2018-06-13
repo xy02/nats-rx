@@ -42,7 +42,7 @@ public class Main {
                     }, err -> {
                     }, () -> System.out.println("subscribeMsg onComplete"));
             //close
-//            Observable.timer(10, TimeUnit.SECONDS)
+//            Observable.timer(6, TimeUnit.SECONDS)
 //                    .doOnComplete(() -> sub.dispose())
 //                    .subscribe();
 //            Observable.timer(3, TimeUnit.SECONDS)
@@ -56,20 +56,14 @@ public class Main {
                     nc.publish(testMsg);
                     //Thread.sleep(1000);
                 }
-            }).subscribeOn(Schedulers.io())
-                    .subscribe(x->{},err->{});
-            Observable.create(emitter1 -> {
-                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());
-                while (true) {
-                    nc.publish(testMsg);
-//                    Thread.sleep(1000);
-                }
-            }).subscribeOn(Schedulers.io())
-                    .subscribe(x->{},err->{});
-            ;
+            })
+                    .subscribeOn(Schedulers.io())
+                    .subscribe(x -> {
+                    }, err -> {
+                    });
             //ping
             Observable
-                    .interval(10, TimeUnit.SECONDS)
+                    .interval(3, TimeUnit.SECONDS)
                     .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
                             .doOnSuccess(System.out::println))
                     .retry()

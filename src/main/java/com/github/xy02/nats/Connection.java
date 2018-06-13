@@ -27,12 +27,12 @@ public class Connection implements IConnection {
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         reconnectSubject.onComplete();
         outputSubject.onComplete();
         msgSubject.onComplete();
         onPongSubject.onComplete();
-        mySocket.close();
+        onCloseSubject.onComplete();
     }
 
     @Override
@@ -52,31 +52,39 @@ public class Connection implements IConnection {
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
         Disposable d = reconnectSubject
                 .mergeWith(Observable.just(0L))
+                .observeOn(Schedulers.io())
+                .doOnNext(x -> System.out.printf("sub :%s\n", Thread.currentThread().getName()))
                 .doOnNext(x -> outputSubject.onNext(subMessage))
-                .doOnNext(x -> System.out.println("sub msg"))
                 .doOnDispose(() -> {
-                    System.out.printf("subscribeMsg doOnDispose :%s\n", Thread.currentThread().getName());
-                    outputSubject.onNext(unsubMessage);
+//                    System.out.printf("subscribeMsg doOnDispose :%s\n", Thread.currentThread().getName());
+                    Observable.just(1)
+                            .subscribeOn(Schedulers.io())
+                            .doOnNext(x -> System.out.printf("unsub :%s\n", Thread.currentThread().getName()))
+                            .subscribe(x -> outputSubject.onNext(unsubMessage));
                 })
+                .subscribeOn(Schedulers.io())
                 .subscribe();
         return msgSubject.filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject))
                 .doOnDispose(d::dispose);
     }
 
     @Override
-    public void publish(MSG msg) throws IOException {
+    public void publish(MSG msg) {
         int bodyLength = msg.getBody().length;
         byte[] message = ("PUB " + msg.getSubject() + " " + msg.getReplyTo() + " " + bodyLength + "\r\n").getBytes();
         byte[] data = ByteBuffer.allocate(message.length + bodyLength + 2).put(message).put(msg.getBody()).put(BUFFER_CRLF).array();
-//        outputSubject.onNext(data);
-        outputStream.write(data);
+        outputSubject.onNext(data);
 //        System.out.printf("publish on :%s\n", Thread.currentThread().getName());
     }
 
     @Override
     public Single<Long> ping() {
         return Observable.interval(0, 1, TimeUnit.MILLISECONDS)
-                .doOnSubscribe(d -> outputSubject.onNext(BUFFER_PING))
+                .doOnSubscribe(d -> {
+                    Single.just(1)
+                            .subscribeOn(Schedulers.io())
+                            .subscribe(x -> outputSubject.onNext(BUFFER_PING));
+                })
                 .takeUntil(onPongSubject)
                 .takeLast(1)
                 .singleOrError()
@@ -93,32 +101,32 @@ public class Connection implements IConnection {
     private final static String TYPE_PONG = "PONG";
     private final static String TYPE_OK = "+OK";
     private final static String TYPE_ERR = "-ERR";
-    private final static String TYPE_FLUSH = "FLUSH";
-    private final static String TYPE_WRITE = "WRITE";
 
-    private Socket mySocket;
-    private OutputStream outputStream;
-    private InputStream inputStream;
     private byte[] buf = new byte[1024 * 64];
     private String[] fragmentArr = new String[10];
     private long reconnectTimes = 0;
     private int sid;
+    private long write = 0;
 
     private Subject<Boolean> onPongSubject = PublishSubject.create();
     private Subject<MSG> msgSubject = PublishSubject.create();
     private Subject<byte[]> outputSubject = PublishSubject.create();
     private Subject<Long> reconnectSubject = BehaviorSubject.create();
+    private Subject<Boolean> onCloseSubject = PublishSubject.create();
 
     private synchronized void init(Options options) throws IOException {
         Socket socket = new Socket(options.getHost(), options.getPort());
-        mySocket = socket;
-        outputStream = new BufferedOutputStream(socket.getOutputStream(), 1024 * 64);
-        inputStream = socket.getInputStream();
+        OutputStream os = socket.getOutputStream();
+        os.write(BUFFER_CONNECT);
+        OutputStream outputStream = new BufferedOutputStream(os, 1024 * 64);
+        InputStream inputStream = socket.getInputStream();
         System.out.printf("connect on :%s\n", Thread.currentThread().getName());
-        readData.subscribeOn(Schedulers.newThread())
-                .mergeWith(writeData)
-                .mergeWith(flushData)
-                .doOnError(t -> socket.close())
+        readData(inputStream)
+                .subscribeOn(Schedulers.newThread())
+                .mergeWith(writeData(outputStream))
+                .mergeWith(flushData(outputStream))
+                .takeUntil(onCloseSubject)
+                .doOnTerminate(socket::close)
                 .doOnDispose(socket::close)
                 .doOnError(x -> reconnect(options))
                 .subscribe(x -> {
@@ -143,87 +151,92 @@ public class Connection implements IConnection {
         return ++sid;
     }
 
-    private Observable<String> flushData = Observable.interval(10000, 100, TimeUnit.MICROSECONDS)
-            .doOnNext(x -> outputStream.flush())
-            .map(x -> TYPE_FLUSH);
+    private Observable<Long> flushData(OutputStream outputStream) {
+        return Observable.interval(10000, 100, TimeUnit.MICROSECONDS)
+                .doOnNext(x -> outputStream.flush())
+                ;
+    }
 
-    private Observable<String> writeData = outputSubject
-            .mergeWith(Observable.just(BUFFER_CONNECT))
-            .observeOn(Schedulers.io())
-            .doOnNext(data -> {
-                outputStream.write(data);
-//                System.out.printf("publish on (io) :%s\n", Thread.currentThread().getName());
-            })
+    private Observable<Long> writeData(OutputStream outputStream) {
+        return outputSubject
+//                .observeOn(Schedulers.io())
+                .doOnNext(data -> {
+                    outputStream.write(data);
+//                    System.out.printf("publish on (io) :%s\n", Thread.currentThread().getName());
+                })
 //            .subscribeOn(Schedulers.io())
-            .map(x -> TYPE_WRITE);
+                .map(x -> ++write);
+    }
 
-    private Observable<String> readData = Observable.create(emitter -> {
-        System.out.printf("read on :%s\n", Thread.currentThread().getName());
-        int fragment = 0;
-        int temp = 0;
-        int read;
-        while ((read = inputStream.read(buf, temp, buf.length - temp)) != -1) {
-            read += temp;
-            int offset = 0;
-            for (int i = 0; i < read; i++) {
-                byte b = buf[i];
-                if (b == 32 || b == 13) {
-                    if (i != offset) {
-                        fragmentArr[fragment] = new String(buf, offset, i - offset);
-                        fragment++;
-                    }
-                    offset = i + 1;
-                    continue;
-                }
-                if (b == 10) {
-                    if (fragment != 0) {
-                        String messageType = fragmentArr[0];
-                        emitter.onNext(messageType);
-                        switch (messageType) {
-                            case TYPE_INFO:
-                                System.out.println(fragmentArr[1]);
-                                break;
-                            case TYPE_MSG:
-                                offset = parseMSG(fragmentArr, fragment, inputStream, i + 1, read) - 1;
-//                                    System.out.printf("offset:%d\n", offset);
-                                i = offset;
-                                break;
-                            case TYPE_PING:
-                                outputSubject.onNext(BUFFER_PONG);
-                                break;
-                            case TYPE_PONG:
-                                onPongSubject.onNext(true);
-                                break;
-                            case TYPE_OK:
-                                System.out.println(TYPE_OK);
-                                break;
-                            case TYPE_ERR:
-                                for (int x = 0; x < fragment; x++)
-                                    System.out.printf("%s ", fragmentArr[x]);
-                                System.out.println();
-                                break;
-                            default:
-                                throw new Exception("bad message type");
+    private Observable<Long> readData(InputStream inputStream) {
+        return Observable.create(emitter -> {
+            System.out.printf("read on :%s\n", Thread.currentThread().getName());
+            int fragment = 0;
+            int temp = 0;
+            int read;
+            while ((read = inputStream.read(buf, temp, buf.length - temp)) != -1) {
+                read += temp;
+                int offset = 0;
+                for (int i = 0; i < read; i++) {
+                    byte b = buf[i];
+                    if (b == 32 || b == 13) {
+                        if (i != offset) {
+                            fragmentArr[fragment] = new String(buf, offset, i - offset);
+                            fragment++;
                         }
-                        fragment = 0;
+                        offset = i + 1;
+                        continue;
                     }
-                    offset = i + 1;
+                    if (b == 10) {
+                        if (fragment != 0) {
+                            String messageType = fragmentArr[0];
+//                            emitter.onNext(messageType);
+                            switch (messageType) {
+                                case TYPE_INFO:
+                                    System.out.println(fragmentArr[1]);
+                                    break;
+                                case TYPE_MSG:
+                                    offset = parseMSG(fragmentArr, fragment, inputStream, i + 1, read) - 1;
+//                                    System.out.printf("offset:%d\n", offset);
+                                    i = offset;
+                                    break;
+                                case TYPE_PING:
+                                    outputSubject.onNext(BUFFER_PONG);
+                                    break;
+                                case TYPE_PONG:
+                                    onPongSubject.onNext(true);
+                                    break;
+                                case TYPE_OK:
+                                    System.out.println(TYPE_OK);
+                                    break;
+                                case TYPE_ERR:
+                                    for (int x = 0; x < fragment; x++)
+                                        System.out.printf("%s ", fragmentArr[x]);
+                                    System.out.println();
+                                    break;
+                                default:
+                                    throw new Exception("bad message type");
+                            }
+                            fragment = 0;
+                        }
+                        offset = i + 1;
 //                    continue;
-                }
+                    }
 //                    if (b < 0)
 //                        throw new Exception("bad message");
-            }
-            if (offset == read) {
-                temp = 0;
-                continue;
-            }
-            //move rest of buf to the start
-            temp = read - offset;
+                }
+                if (offset == read) {
+                    temp = 0;
+                    continue;
+                }
+                //move rest of buf to the start
+                temp = read - offset;
 //                System.out.printf("read:%d, offset:%d, temp:%d\n", read, offset, temp);
-            System.arraycopy(buf, offset, buf, 0, temp);
-        }
-        throw new Exception("read -1");
-    });
+                System.arraycopy(buf, offset, buf, 0, temp);
+            }
+            throw new Exception("read -1");
+        });
+    }
 
     private int parseMSG(String[] arr, int fragment, InputStream inputStream, int offset, int max) throws Exception {
         String subject = arr[1];
