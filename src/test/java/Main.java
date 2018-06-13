@@ -48,6 +48,21 @@ public class Main {
 //            Observable.timer(3, TimeUnit.SECONDS)
 //                    .doOnComplete(() -> nc.close())
 //                    .subscribe();
+
+            //ping
+            Observable
+                    .interval(3, TimeUnit.SECONDS)
+                    .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
+                            .doOnSuccess(System.out::println))
+                    .retry()
+                    .subscribe()
+            ;
+
+            //log
+            Observable.interval(1, TimeUnit.SECONDS)
+                    .subscribe(x -> System.out.printf("%d sec read: %d, ops: %d/s\n", x + 1, read, read / (x + 1)))
+            ;
+
             //pub
             MSG testMsg = new MSG(subject, "hello".getBytes());
             Observable.create(emitter1 -> {
@@ -56,25 +71,18 @@ public class Main {
                     nc.publish(testMsg);
                     //Thread.sleep(1000);
                 }
-            })
-                    .subscribeOn(Schedulers.io())
-                    .subscribe(x -> {
-                    }, err -> {
-                    });
-            //ping
-//            Observable
-//                    .interval(3, TimeUnit.SECONDS)
-//                    .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
-//                            .doOnSuccess(System.out::println))
-//                    .retry()
-//                    .subscribe()
-            ;
-            //log
-            Observable.interval(1, TimeUnit.SECONDS)
-                    .subscribe(x -> System.out.printf("%d sec read: %d, ops: %d/s\n", x + 1, read, read / (x + 1)))
-            ;
+            }).subscribeOn(Schedulers.newThread()).subscribe();
+            Observable.create(emitter1 -> {
+                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());
+                while (true) {
+                    nc.publish(testMsg);
+                    //Thread.sleep(1000);
+                }
+            }).subscribeOn(Schedulers.newThread()).subscribe();
+            System.out.printf("11111\n");
 
         })
+//                .subscribeOn(Schedulers.io())
                 .doOnError(Throwable::printStackTrace)
                 .retryWhen(x -> x.delay(1, TimeUnit.SECONDS))
                 .subscribe()

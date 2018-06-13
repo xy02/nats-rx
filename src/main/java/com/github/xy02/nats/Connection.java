@@ -52,17 +52,9 @@ public class Connection implements IConnection {
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
         Disposable d = reconnectSubject
                 .mergeWith(Observable.just(0L))
-                .observeOn(Schedulers.io())
                 .doOnNext(x -> System.out.printf("sub :%s\n", Thread.currentThread().getName()))
                 .doOnNext(x -> outputSubject.onNext(subMessage))
-                .doOnDispose(() -> {
-//                    System.out.printf("subscribeMsg doOnDispose :%s\n", Thread.currentThread().getName());
-                    Observable.just(1)
-                            .subscribeOn(Schedulers.io())
-                            .doOnNext(x -> System.out.printf("unsub :%s\n", Thread.currentThread().getName()))
-                            .subscribe(x -> outputSubject.onNext(unsubMessage));
-                })
-                .subscribeOn(Schedulers.io())
+                .doOnDispose(() -> outputSubject.onNext(unsubMessage))
                 .subscribe();
         return msgSubject.filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject))
                 .doOnDispose(d::dispose);
@@ -80,11 +72,7 @@ public class Connection implements IConnection {
     @Override
     public Single<Long> ping() {
         return Observable.interval(0, 1, TimeUnit.MILLISECONDS)
-                .doOnSubscribe(d -> {
-                    Single.just(1)
-                            .subscribeOn(Schedulers.io())
-                            .subscribe(x -> outputSubject.onNext(BUFFER_PING));
-                })
+                .doOnSubscribe(d -> outputSubject.onNext(BUFFER_PING))
                 .takeUntil(onPongSubject)
                 .takeLast(1)
                 .singleOrError()
@@ -117,9 +105,7 @@ public class Connection implements IConnection {
     private synchronized void init(Options options) throws IOException {
         Socket socket = new Socket(options.getHost(), options.getPort());
         OutputStream os = socket.getOutputStream();
-        Single.just(1)
-                .subscribeOn(Schedulers.io())
-                .subscribe(x->os.write(BUFFER_CONNECT));
+        os.write(BUFFER_CONNECT);
         OutputStream outputStream = new BufferedOutputStream(os, 1024 * 64);
         InputStream inputStream = socket.getInputStream();
         System.out.printf("connect on :%s\n", Thread.currentThread().getName());
@@ -161,12 +147,7 @@ public class Connection implements IConnection {
 
     private Observable<Long> writeData(OutputStream outputStream) {
         return outputSubject
-//                .observeOn(Schedulers.io())
-                .doOnNext(data -> {
-                    outputStream.write(data);
-//                    System.out.printf("publish on (io) :%s\n", Thread.currentThread().getName());
-                })
-//            .subscribeOn(Schedulers.io())
+                .doOnNext(data -> outputStream.write(data))
                 .map(x -> ++write);
     }
 
