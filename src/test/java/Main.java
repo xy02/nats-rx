@@ -11,10 +11,8 @@ public class Main {
 
     public static void main(String[] args) {
         try {
-
-            Main test = new Main();
-            test.test("sub1");
-//            new Main().test("sub2");
+            new Main().test("sub1", 0);
+//            new Main().test("sub1", -1);
 
             Thread.sleep(Long.MAX_VALUE);
 
@@ -27,20 +25,22 @@ public class Main {
 
     public long length = 0;
 
-    public void test(String subject) {
+    public void test(String subject, int type) {
         Single.create(emitter -> {
             //create connection
             Connection nc = new Connection();
             //sub
-            Disposable sub = nc.subscribeMsg(subject)
+            if (type >= 0) {
+                Disposable sub = nc.subscribeMsg(subject)
 //                .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
-                    .doOnComplete(() -> System.out.printf("read: %d\n", read))
-                    .doOnNext(msg -> read++)
+                        .doOnComplete(() -> System.out.printf("read: %d\n", read))
+                        .doOnNext(msg -> read++)
 //                .doOnNext(msg -> length += msg.getBody().length)
 //                .doOnNext(msg -> System.out.printf("Received a msg: %s, i:%d\n", new String(msg.getBody()),read))
-                    .subscribe(msg -> {
-                    }, err -> {
-                    }, () -> System.out.println("subscribeMsg onComplete"));
+                        .subscribe(msg -> {
+                        }, err -> {
+                        }, () -> System.out.println("subscribeMsg onComplete"));
+            }
             //close
 //            Observable.timer(6, TimeUnit.SECONDS)
 //                    .doOnComplete(() -> sub.dispose())
@@ -54,6 +54,7 @@ public class Main {
                     .interval(3, TimeUnit.SECONDS)
                     .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
                             .doOnSuccess(System.out::println))
+                    .doOnError(Throwable::printStackTrace)
                     .retry()
                     .subscribe()
             ;
@@ -64,21 +65,24 @@ public class Main {
             ;
 
             //pub
-            MSG testMsg = new MSG(subject, "hello".getBytes());
-            Observable.create(emitter1 -> {
-                System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
-                while (true) {
-                    nc.publish(testMsg);
-                    //Thread.sleep(1000);
-                }
-            }).subscribeOn(Schedulers.newThread()).subscribe();
-            Observable.create(emitter1 -> {
-                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());
-                while (true) {
-                    nc.publish(testMsg);
-                    //Thread.sleep(1000);
-                }
-            }).subscribeOn(Schedulers.newThread()).subscribe();
+            if (type <= 0) {
+                MSG testMsg = new MSG(subject, "hello".getBytes());
+                Observable.create(emitter1 -> {
+                    System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
+                    while (true) {
+                        nc.publish(testMsg);
+//                        Thread.yield();
+                        Thread.sleep(0,1);
+                    }
+                }).subscribeOn(Schedulers.io()).subscribe();
+            }
+//            Observable.create(emitter1 -> {
+//                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());
+//                while (true) {
+//                    nc.publish(testMsg);
+//                    //Thread.sleep(1000);
+//                }
+//            }).subscribeOn(Schedulers.newThread()).subscribe();
             System.out.printf("11111\n");
 
         })

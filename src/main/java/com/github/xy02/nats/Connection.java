@@ -151,6 +151,39 @@ public class Connection implements IConnection {
                 .map(x -> ++write);
     }
 
+    private Observable<Long> readData2(InputStream inputStream) {
+        return Observable.create(emitter -> {
+            int i = 0;
+            int read;
+            while ((read = inputStream.read(buf, i, buf.length - i)) != -1) {
+                //parse type
+                while (i < read) {
+                    switch (buf[i]) {
+                        case charM:
+                            i = handle1stM(++i, read, inputStream);
+                            break;
+                        case charI:
+                            i = handle1stI(++i, read, inputStream);
+                            break;
+                        case charP:
+                            i = handle1stP(++i, read, inputStream);
+                            break;
+                        case charO:
+                            i = handle1stO(++i, read, inputStream);
+                            break;
+                        case charE:
+                            i = handle1stE(++i, read, inputStream);
+                            break;
+                        default:
+                            throw new Exception("bad message type");
+                    }
+                }
+                System.arraycopy(buf, i, buf, 0, read - i);
+                Thread.yield();
+            }
+        });
+    }
+
     private Observable<Long> readData(InputStream inputStream) {
         return Observable.create(emitter -> {
             System.out.printf("read on :%s\n", Thread.currentThread().getName());
@@ -216,6 +249,7 @@ public class Connection implements IConnection {
                 temp = read - offset;
 //                System.out.printf("read:%d, offset:%d, temp:%d\n", read, offset, temp);
                 System.arraycopy(buf, offset, buf, 0, temp);
+                Thread.yield();
             }
             throw new Exception("read -1");
         });
