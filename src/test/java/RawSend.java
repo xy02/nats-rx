@@ -1,8 +1,6 @@
 import io.reactivex.Observable;
-import io.reactivex.schedulers.Schedulers;
 
 import java.io.BufferedOutputStream;
-import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.concurrent.TimeUnit;
@@ -16,17 +14,18 @@ public class RawSend {
             os.write(BUFFER_CONNECT);
             os.flush();
             byte[] data = "PUB sub1 5\r\nhello\r\n".getBytes();
-            Observable.interval(0, 1, TimeUnit.NANOSECONDS)
-//                    .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
-                    .doOnNext(x -> {
-                        os.write(data);
-                        ++send;
-                    })
-                    .doOnComplete(() -> System.out.printf("send: %d\n", send))
+            Observable.timer(20, TimeUnit.SECONDS)
+                    .doOnComplete(() -> System.out.printf("ops: %d/s\n", send/20))
                     .subscribe();
-            Observable.interval(0, 100, TimeUnit.MICROSECONDS)
-                    .doOnNext(x -> os.flush())
-                    .subscribe();
+            Observable.create(emitter -> {
+                while (true) {
+                    os.write(data);
+                    ++send;
+                }
+            }).subscribe();
+//            Observable.interval(0, 100, TimeUnit.MICROSECONDS)
+//                    .doOnNext(x -> os.flush())
+//                    .subscribe();
 
             Thread.sleep(Long.MAX_VALUE);
 

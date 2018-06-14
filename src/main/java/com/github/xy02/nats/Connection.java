@@ -204,14 +204,7 @@ public class Connection implements IConnection {
                 }
                 min++;
             }
-            //move rest of buf to the start
-            min = max - offset;
-            if (min > 0)
-                System.arraycopy(buf, offset, buf, 0, min);
-            int read = inputStream.read(buf, min, buf.length - min);
-            if (read == -1)
-                throw new Exception("read -1");
-            max = min + read;
+            moveRemain(inputStream, offset);
             offset = 0;
         }
     }
@@ -226,10 +219,7 @@ public class Connection implements IConnection {
                 if (b == LF)
                     return;
             }
-            max = inputStream.read(buf);
-            if (max == -1)
-                throw new Exception("read -1");
-            min = 0;
+            moveRemain(inputStream, max);
         }
     }
 
@@ -245,16 +235,21 @@ public class Connection implements IConnection {
                 }
                 min++;
             }
-            //move rest of buf to the start
-            min = max - offset;
-            if (min > 0)
-                System.arraycopy(buf, offset, buf, 0, min);
-            int read = inputStream.read(buf, min, buf.length - min);
-            if (read == -1)
-                throw new Exception("read -1");
-            max = min + read;
+            moveRemain(inputStream, offset);
             offset = 0;
         }
+    }
+
+    //move rest of buf to the start
+    private void moveRemain(InputStream inputStream, int offset)throws Exception {
+        //move rest of buf to the start
+        min = max - offset;
+        if (min > 0)
+            System.arraycopy(buf, offset, buf, 0, min);
+        int read = inputStream.read(buf, min, buf.length - min);
+        if (read == -1)
+            throw new Exception("read -1");
+        max = min + read;
     }
 
     private void readMSG(InputStream inputStream) throws Exception {
@@ -362,7 +357,7 @@ public class Connection implements IConnection {
                 temp = read - offset;
 //                System.out.printf("read:%d, offset:%d, temp:%d\n", read, offset, temp);
                 System.arraycopy(buf, offset, buf, 0, temp);
-                Thread.yield();
+//                Thread.yield();
             }
             throw new Exception("read -1");
         });
