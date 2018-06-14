@@ -181,7 +181,7 @@ public class Connection implements IConnection {
                         System.out.println(TYPE_OK);
                         break;
                     case TYPE_ERR:
-                        String err = readString(inputStream);
+                        String err = readStringToCR(inputStream);
                         System.out.println(err);
                         break;
                     default:
@@ -190,6 +190,30 @@ public class Connection implements IConnection {
                 readSpaceAndCRLF(inputStream);
             }
         }).doOnError(Throwable::printStackTrace);
+    }
+
+    private String readStringToCR(InputStream inputStream) throws Exception {
+        int offset = min;
+        while (true) {
+            while (min < max) {
+                if (buf[min] == CR) {
+                    String str = new String(buf, offset, min - offset);
+//                    System.out.println(str);
+                    min++;
+                    return str;
+                }
+                min++;
+            }
+            //move rest of buf to the start
+            min = max - offset;
+            if (min > 0)
+                System.arraycopy(buf, offset, buf, 0, min);
+            int read = inputStream.read(buf, min, buf.length - min);
+            if (read == -1)
+                throw new Exception("read -1");
+            max = min + read;
+            offset = 0;
+        }
     }
 
     private void readSpaceAndCRLF(InputStream inputStream) throws Exception {
@@ -238,7 +262,7 @@ public class Connection implements IConnection {
         String sid = readString(inputStream);
         String replyTo = readString(inputStream);
         String length;
-        if (buf[min-1] == CR) {
+        if (buf[min - 1] == CR) {
             length = replyTo;
             replyTo = "";
         } else {

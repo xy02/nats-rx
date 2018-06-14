@@ -12,7 +12,7 @@ public class Main {
     public static void main(String[] args) {
         try {
             new Main().test("sub1", 1);
-            new Main().test("sub1", -1);
+//            new Main().test("sub1", -1);
 
 
             Thread.sleep(Long.MAX_VALUE);
