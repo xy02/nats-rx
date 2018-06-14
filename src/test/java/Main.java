@@ -60,22 +60,22 @@ public class Main {
             ;
 
             //log
-            Observable.interval(1, TimeUnit.SECONDS)
-                    .subscribe(x -> System.out.printf("%d sec read: %d, ops: %d/s\n", x + 1, read, read / (x + 1)))
-            ;
+//            Observable.interval(1, TimeUnit.SECONDS)
+//                    .subscribe(x -> System.out.printf("%d sec read: %d, ops: %d/s\n", x + 1, read, read / (x + 1)))
+//            ;
 
             //pub
-            if (type <= 0) {
-                MSG testMsg = new MSG(subject, "hello".getBytes());
-                Observable.create(emitter1 -> {
-                    System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
-                    while (true) {
-                        nc.publish(testMsg);
-//                        Thread.yield();
-                        Thread.sleep(0,1);
-                    }
-                }).subscribeOn(Schedulers.io()).subscribe();
-            }
+//            if (type <= 0) {
+//                MSG testMsg = new MSG(subject, "hello".getBytes());
+//                Observable.create(emitter1 -> {
+//                    System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
+//                    while (true) {
+//                        nc.publish(testMsg);
+////                        Thread.yield();
+//                        Thread.sleep(0,1);
+//                    }
+//                }).subscribeOn(Schedulers.io()).subscribe();
+//            }
 //            Observable.create(emitter1 -> {
 //                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());
 //                while (true) {
