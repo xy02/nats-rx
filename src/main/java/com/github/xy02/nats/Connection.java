@@ -7,7 +7,6 @@ import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import org.omg.PortableInterceptor.INACTIVE;
 
 import java.io.BufferedOutputStream;
 import java.io.IOException;
@@ -90,6 +89,9 @@ public class Connection implements IConnection {
     private final static String TYPE_PONG = "PONG";
     private final static String TYPE_OK = "+OK";
     private final static String TYPE_ERR = "-ERR";
+    private final static byte CR = (byte) '\r';
+    private final static byte LF = (byte) '\n';
+    private final static byte SPACE = (byte) ' ';
 
     private byte[] buf = new byte[1024 * 64];
     //min bound of buf
@@ -111,7 +113,7 @@ public class Connection implements IConnection {
     private synchronized void init(Options options) throws IOException {
         Socket socket = new Socket(options.getHost(), options.getPort());
         OutputStream os = socket.getOutputStream();
-//        os.write(BUFFER_CONNECT);
+        os.write(BUFFER_CONNECT);
         OutputStream outputStream = new BufferedOutputStream(os, 1024 * 64);
         InputStream inputStream = socket.getInputStream();
         System.out.printf("connect on :%s\n", Thread.currentThread().getName());
@@ -157,69 +159,11 @@ public class Connection implements IConnection {
                 .map(x -> ++write);
     }
 
-    private final static byte M = (byte) 'M';
-    private final static byte S = (byte) 'S';
-    private final static byte G = (byte) 'G';
-    private final static byte I = (byte) 'I';
-    private final static byte N = (byte) 'N';
-    private final static byte F = (byte) 'F';
-    private final static byte O = (byte) 'O';
-    private final static byte P = (byte) 'P';
-    private final static byte K = (byte) 'K';
-    private final static byte E = (byte) 'E';
-    private final static byte R = (byte) 'R';
-    private final static byte CR = (byte) '\r';
-    private final static byte LF = (byte) '\n';
-    private final static byte PLUS = (byte) '+';
-    private final static byte MINUS = (byte) '-';
-    private final static byte SPACE = (byte) ' ';
-
-    private Observable<Long> readData2(InputStream inputStream) {
-        return Observable.<Long>create(emitter -> {
-            while (true) {
-                while (min + 5 < max) {
-                    if (buf[min] == M && buf[++min] == S && buf[++min] == G && buf[++min] == SPACE) {
-                        ++min;
-                        readMSG(inputStream);
-                    } else if (buf[min] == CR || buf[min] == LF) {
-                        ++min;
-                    } else if (buf[min] == I && buf[++min] == N && buf[++min] == F && buf[++min] == O && buf[++min] == SPACE) {
-                        ++min;
-                        readINFO(inputStream);
-                    } else if (buf[min] == P && buf[++min] == I && buf[++min] == N && buf[++min] == G && buf[++min] == CR) {
-                        ++min;
-                        outputSubject.onNext(BUFFER_PONG);
-                    } else if (buf[min] == P && buf[++min] == O && buf[++min] == N && buf[++min] == G && buf[++min] == CR) {
-                        ++min;
-                        onPongSubject.onNext(true);
-                    } else if (buf[min] == PLUS && buf[++min] == O && buf[++min] == K && buf[++min] == CR && buf[++min] == LF) {
-                        ++min;
-                        System.out.println(TYPE_OK);
-                    } else if (buf[min] == MINUS && buf[++min] == E && buf[++min] == R && buf[++min] == R && buf[++min] == SPACE) {
-                        ++min;
-                        readERR(inputStream);
-                    } else {
-                        throw new Exception("bad message type");
-                    }
-                }
-                int remain = max - min;
-                if (remain > 0)
-                    System.arraycopy(buf, min, buf, 0, remain);
-                int read = inputStream.read(buf, remain, buf.length - remain);
-                if (read == -1)
-                    throw new Exception("read -1");
-                max = remain + read;
-                min = 0;
-                Thread.yield();
-            }
-        }).doOnError(Throwable::printStackTrace);
-    }
-
     private Observable<Long> readData3(InputStream inputStream) {
         return Observable.<Long>create(emitter -> {
             while (true) {
                 String messageType = readString(inputStream);
-                switch (messageType){
+                switch (messageType) {
                     case TYPE_MSG:
                         readMSG(inputStream);
                         break;
@@ -237,35 +181,34 @@ public class Connection implements IConnection {
                         System.out.println(TYPE_OK);
                         break;
                     case TYPE_ERR:
-                        String err =readString(inputStream);
+                        String err = readString(inputStream);
                         System.out.println(err);
                         break;
                     default:
                         throw new Exception("bad message type");
                 }
-                while(min< max){
-                    byte b = buf[min];
-                    if (  b == CR || b== LF||b== SPACE ){
-                        min++;
-                    }else{
-                        throw new Exception("bad message");
-                    }
-                }
-                if(min <max && buf[min] == CR){
-                    min++;
-                }
-                if (min <max && buf[min] == LF){
-                    min++;
-                }
-                if (min == max){
-                    max = inputStream.read(buf);
-                    min = 0;
-                }
+                readSpaceAndCRLF(inputStream);
             }
         }).doOnError(Throwable::printStackTrace);
     }
 
-    //return true if the end char is CR
+    private void readSpaceAndCRLF(InputStream inputStream) throws Exception {
+        while (true) {
+            while (min < max) {
+                byte b = buf[min];
+                min++;
+                if (b == CR || b == SPACE)
+                    continue;
+                if (b == LF)
+                    return;
+            }
+            max = inputStream.read(buf);
+            if (max == -1)
+                throw new Exception("read -1");
+            min = 0;
+        }
+    }
+
     private String readString(InputStream inputStream) throws Exception {
         int offset = min;
         while (true) {
@@ -274,7 +217,6 @@ public class Connection implements IConnection {
                     String str = new String(buf, offset, min - offset);
 //                    System.out.println(str);
                     min++;
-//                    System.out.printf("c:%d, min:%d\n",buf[min], min);
                     return str;
                 }
                 min++;
@@ -292,49 +234,21 @@ public class Connection implements IConnection {
     }
 
     private void readMSG(InputStream inputStream) throws Exception {
-        int fragment = 0;
-        int offset = min;
-        //header loop
-        while (true) {
-            while (min < max) {
-                byte b = buf[min];
-                if (b == SPACE || b == CR) {
-                    fragmentArr[fragment] = new String(buf, offset, min - offset);
-                    fragment++;
-                    offset = ++min;
-                    continue;
-                }
-                if (b == LF) {
-                    String subject = fragmentArr[0];
-                    String sid = fragmentArr[1];
-                    String replyTo;
-                    if (fragment == 3) {
-                        replyTo = "";
-                    } else {
-                        replyTo = fragmentArr[2];
-                    }
-                    int length = Integer.parseInt(fragmentArr[fragment - 1]);
-                    byte[] body = new byte[length];
-                    min++;
-                    readMsgBody(inputStream, body);
-                    //handle
-                    msgSubject.onNext(new MSG(subject, Integer.parseInt(sid), replyTo, body));
-                    return;
-                }
-                if (b < 0)
-                    throw new Exception("bad message");
-                ++min;
-            }
-            //move rest of buf to the start
-            min = max - offset;
-            if (min > 0)
-                System.arraycopy(buf, offset, buf, 0, min);
-            int read = inputStream.read(buf, min, buf.length - min);
-            if (read == -1)
-                throw new Exception("read -1");
-            max = min + read;
-            offset = 0;
+        String subject = readString(inputStream);
+        String sid = readString(inputStream);
+        String replyTo = readString(inputStream);
+        String length;
+        if (buf[min-1] == CR) {
+            length = replyTo;
+            replyTo = "";
+        } else {
+            length = readString(inputStream);
         }
+        readSpaceAndCRLF(inputStream);
+        byte[] body = new byte[Integer.parseInt(length)];
+        readMsgBody(inputStream, body);
+        //handle msg
+        msgSubject.onNext(new MSG(subject, Integer.parseInt(sid), replyTo, body));
     }
 
     private void readMsgBody(InputStream inputStream, byte[] body) throws Exception {
@@ -356,54 +270,7 @@ public class Connection implements IConnection {
             System.arraycopy(buf, min, body, 0, length);
             min += length;
         }
-    }
-
-    private void readINFO(InputStream inputStream) throws Exception {
-        int offset = min;
-        while (true) {
-            while (min < max) {
-                if (buf[min] == CR) {
-                    String json = new String(buf, offset, min - offset);
-                    System.out.println(json);
-                    min++;
-                    return;
-                }
-                min++;
-            }
-            //move rest of buf to the start
-            min = max - offset;
-            if (min > 0)
-                System.arraycopy(buf, offset, buf, 0, min);
-            int read = inputStream.read(buf, min, buf.length - min);
-            if (read == -1)
-                throw new Exception("read -1");
-            max = min + read;
-            offset = 0;
-        }
-    }
-
-    private void readERR(InputStream inputStream) throws Exception {
-        int offset = min;
-        while (true) {
-            while (min < max) {
-                if (buf[min] == CR) {
-                    String json = new String(buf, offset, min - offset);
-                    System.out.println(json);
-                    min++;
-                    return;
-                }
-                min++;
-            }
-            //move rest of buf to the start
-            min = max - offset;
-            if (min > 0)
-                System.arraycopy(buf, offset, buf, 0, min);
-            int read = inputStream.read(buf, min, buf.length - min);
-            if (read == -1)
-                throw new Exception("read -1");
-            max = min + read;
-            offset = 0;
-        }
+//        System.out.printf(".....body is %s.....\n",new String(body));
     }
 
     private Observable<Long> readData(InputStream inputStream) {

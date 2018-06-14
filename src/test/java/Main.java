@@ -11,8 +11,9 @@ public class Main {
 
     public static void main(String[] args) {
         try {
-            new Main().test("sub1", 0);
-//            new Main().test("sub1", -1);
+            new Main().test("sub1", 1);
+            new Main().test("sub1", -1);
+
 
             Thread.sleep(Long.MAX_VALUE);
 
@@ -50,32 +51,32 @@ public class Main {
 //                    .subscribe();
 
             //ping
-            Observable
-                    .interval(3, TimeUnit.SECONDS)
-                    .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
-                            .doOnSuccess(System.out::println))
-                    .doOnError(Throwable::printStackTrace)
-                    .retry()
-                    .subscribe()
-            ;
-
-            //log
-//            Observable.interval(1, TimeUnit.SECONDS)
-//                    .subscribe(x -> System.out.printf("%d sec read: %d, ops: %d/s\n", x + 1, read, read / (x + 1)))
+//            Observable
+//                    .interval(3, TimeUnit.SECONDS)
+//                    .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
+//                            .doOnSuccess(System.out::println))
+//                    .doOnError(Throwable::printStackTrace)
+//                    .retry()
+//                    .subscribe()
 //            ;
 
+            //log
+            Observable.interval(1, TimeUnit.SECONDS)
+                    .subscribe(x -> System.out.printf("%d sec read: %d, ops: %d/s\n", x + 1, read, read / (x + 1)))
+            ;
+
             //pub
-//            if (type <= 0) {
-//                MSG testMsg = new MSG(subject, "hello".getBytes());
-//                Observable.create(emitter1 -> {
-//                    System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
-//                    while (true) {
-//                        nc.publish(testMsg);
-////                        Thread.yield();
+            if (type <= 0) {
+                MSG testMsg = new MSG(subject, "hello".getBytes());
+                Observable.create(emitter1 -> {
+                    System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
+                    while (true) {
+                        nc.publish(testMsg);
+//                        Thread.yield();
 //                        Thread.sleep(0,1);
-//                    }
-//                }).subscribeOn(Schedulers.io()).subscribe();
-//            }
+                    }
+                }).subscribeOn(Schedulers.io()).subscribe();
+            }
 //            Observable.create(emitter1 -> {
 //                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());
 //                while (true) {
