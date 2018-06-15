@@ -1,4 +1,5 @@
 import com.github.xy02.nats.Connection;
+import com.github.xy02.nats.IConnection;
 import com.github.xy02.nats.MSG;
 import io.reactivex.Observable;
 import io.reactivex.Single;
@@ -12,7 +13,7 @@ public class Main {
     public static void main(String[] args) {
         try {
             new Main().test("sub1", 1);
-//            new Main().test("sub1", -1);
+            new Main().test("sub1", -1);
 
 
             Thread.sleep(Long.MAX_VALUE);
@@ -29,15 +30,16 @@ public class Main {
     public void test(String subject, int type) {
         Single.create(emitter -> {
             //create connection
-            Connection nc = new Connection();
+            IConnection nc = new Connection();
             //sub
             if (type >= 0) {
                 Disposable sub = nc.subscribeMsg(subject)
 //                .takeUntil(Observable.timer(10, TimeUnit.SECONDS))
                         .doOnComplete(() -> System.out.printf("read: %d\n", read))
+//                        .observeOn(Schedulers.computation())
                         .doOnNext(msg -> read++)
 //                .doOnNext(msg -> length += msg.getBody().length)
-//                .doOnNext(msg -> System.out.printf("Received a msg: %s, i:%d\n", new String(msg.getBody()),read))
+//                .doOnNext(msg -> System.out.printf("Received a msg: %s, thread:%s\n", new String(msg.getBody()),Thread.currentThread().getName()))
                         .subscribe(msg -> {
                         }, err -> {
                         }, () -> System.out.println("subscribeMsg onComplete"));
@@ -73,7 +75,7 @@ public class Main {
                     while (true) {
                         nc.publish(testMsg);
 //                        Thread.yield();
-//                        Thread.sleep(0,1);
+//                        Thread.sleep(1000);
                     }
                 }).subscribeOn(Schedulers.io()).subscribe();
             }

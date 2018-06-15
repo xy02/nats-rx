@@ -117,8 +117,8 @@ public class Connection implements IConnection {
         OutputStream outputStream = new BufferedOutputStream(os, 1024 * 64);
         InputStream inputStream = socket.getInputStream();
         System.out.printf("connect on :%s\n", Thread.currentThread().getName());
-        readData3(inputStream)
-                .subscribeOn(Schedulers.newThread())
+        readData(inputStream)
+                .subscribeOn(Schedulers.io())
                 .mergeWith(writeData(outputStream))
                 .mergeWith(flushData(outputStream))
                 .takeUntil(onCloseSubject)
@@ -159,16 +159,20 @@ public class Connection implements IConnection {
                 .map(x -> ++write);
     }
 
-    private Observable<Long> readData3(InputStream inputStream) {
+    private Observable<Long> readData(InputStream inputStream) {
         return Observable.<Long>create(emitter -> {
+            System.out.printf("read on: %s\n", Thread.currentThread().getName());
+            min = 0;
+            max = 0;
             while (true) {
                 String messageType = readString(inputStream);
+//                System.out.printf("messageType:%s.\n",messageType);
                 switch (messageType) {
                     case TYPE_MSG:
                         readMSG(inputStream);
                         break;
                     case TYPE_INFO:
-                        String json = readString(inputStream);
+                        String json = readLine(inputStream);
                         System.out.println(json);
                         break;
                     case TYPE_PING:
@@ -181,24 +185,37 @@ public class Connection implements IConnection {
                         System.out.println(TYPE_OK);
                         break;
                     case TYPE_ERR:
-                        String err = readStringToCR(inputStream);
+                        String err = readLine(inputStream);
                         System.out.println(err);
                         break;
                     default:
                         throw new Exception("bad message type");
                 }
-                readSpaceAndCRLF(inputStream);
+                readLF(inputStream);
             }
         }).doOnError(Throwable::printStackTrace);
     }
 
-    private String readStringToCR(InputStream inputStream) throws Exception {
+    private void readLF(InputStream inputStream) throws Exception {
+        while (true) {
+            while (min < max) {
+                if (buf[min] == LF) {
+                    min++;
+                    return;
+                }
+                min++;
+            }
+            moveRemain(inputStream, max);
+        }
+    }
+
+    private String readString(InputStream inputStream) throws Exception {
         int offset = min;
         while (true) {
             while (min < max) {
-                if (buf[min] == CR) {
+                byte b = buf[min];
+                if (b == SPACE || b == CR) {
                     String str = new String(buf, offset, min - offset);
-//                    System.out.println(str);
                     min++;
                     return str;
                 }
@@ -209,27 +226,12 @@ public class Connection implements IConnection {
         }
     }
 
-    private void readSpaceAndCRLF(InputStream inputStream) throws Exception {
-        while (true) {
-            while (min < max) {
-                byte b = buf[min];
-                min++;
-                if (b == CR || b == SPACE)
-                    continue;
-                if (b == LF)
-                    return;
-            }
-            moveRemain(inputStream, max);
-        }
-    }
-
-    private String readString(InputStream inputStream) throws Exception {
+    private String readLine(InputStream inputStream) throws Exception {
         int offset = min;
         while (true) {
             while (min < max) {
-                if (buf[min] == SPACE || buf[min] == CR) {
+                if (buf[min] == CR) {
                     String str = new String(buf, offset, min - offset);
-//                    System.out.println(str);
                     min++;
                     return str;
                 }
@@ -241,7 +243,7 @@ public class Connection implements IConnection {
     }
 
     //move rest of buf to the start
-    private void moveRemain(InputStream inputStream, int offset)throws Exception {
+    private void moveRemain(InputStream inputStream, int offset) throws Exception {
         //move rest of buf to the start
         min = max - offset;
         if (min > 0)
@@ -263,7 +265,7 @@ public class Connection implements IConnection {
         } else {
             length = readString(inputStream);
         }
-        readSpaceAndCRLF(inputStream);
+        readLF(inputStream);
         byte[] body = new byte[Integer.parseInt(length)];
         readMsgBody(inputStream, body);
         //handle msg
@@ -290,118 +292,6 @@ public class Connection implements IConnection {
             min += length;
         }
 //        System.out.printf(".....body is %s.....\n",new String(body));
-    }
-
-    private Observable<Long> readData(InputStream inputStream) {
-        return Observable.create(emitter -> {
-            System.out.printf("read on :%s\n", Thread.currentThread().getName());
-            int fragment = 0;
-            int temp = 0;
-            int read;
-            while ((read = inputStream.read(buf, temp, buf.length - temp)) != -1) {
-                read += temp;
-                int offset = 0;
-                for (int i = 0; i < read; i++) {
-                    byte b = buf[i];
-                    if (b == 32 || b == 13) {
-                        if (i != offset) {
-                            fragmentArr[fragment] = new String(buf, offset, i - offset);
-                            fragment++;
-                        }
-                        offset = i + 1;
-                        continue;
-                    }
-                    if (b == 10) {
-                        if (fragment != 0) {
-                            String messageType = fragmentArr[0];
-//                            emitter.onNext(messageType);
-                            switch (messageType) {
-                                case TYPE_INFO:
-                                    System.out.println(fragmentArr[1]);
-                                    break;
-                                case TYPE_MSG:
-                                    offset = parseMSG(fragmentArr, fragment, inputStream, i + 1, read) - 1;
-//                                    System.out.printf("offset:%d\n", offset);
-                                    i = offset;
-                                    break;
-                                case TYPE_PING:
-                                    outputSubject.onNext(BUFFER_PONG);
-                                    break;
-                                case TYPE_PONG:
-                                    onPongSubject.onNext(true);
-                                    break;
-                                case TYPE_OK:
-                                    System.out.println(TYPE_OK);
-                                    break;
-                                case TYPE_ERR:
-                                    for (int x = 0; x < fragment; x++)
-                                        System.out.printf("%s ", fragmentArr[x]);
-                                    System.out.println();
-                                    break;
-                                default:
-                                    throw new Exception("bad message type");
-                            }
-                            fragment = 0;
-                        }
-                        offset = i + 1;
-//                    continue;
-                    }
-//                    if (b < 0)
-//                        throw new Exception("bad message");
-                }
-                if (offset == read) {
-                    temp = 0;
-                    continue;
-                }
-                //move rest of buf to the start
-                temp = read - offset;
-//                System.out.printf("read:%d, offset:%d, temp:%d\n", read, offset, temp);
-                System.arraycopy(buf, offset, buf, 0, temp);
-//                Thread.yield();
-            }
-            throw new Exception("read -1");
-        });
-    }
-
-    private int parseMSG(String[] arr, int fragment, InputStream inputStream, int offset, int max) throws Exception {
-        String subject = arr[1];
-        String sid = arr[2];
-        String replyTo = "";
-        int length;
-        if (fragment == 4)
-            length = Integer.parseInt(arr[3]);
-        else {
-            replyTo = arr[3];
-            length = Integer.parseInt(arr[4]);
-        }
-        byte[] data = new byte[length];
-        int lengthWithCRLF = length + 2;
-        if (offset + lengthWithCRLF > max) {
-//            System.out.printf("offset:%d, length:%d-------------------", offset, length);
-            int index = max - offset;
-            if (index > length) {
-                //superfluous CR
-                System.arraycopy(buf, offset, data, 0, length);
-                offset += length;
-            } else {
-                //first,copy from buf to data
-                System.arraycopy(buf, offset, data, 0, index);
-                //read rest data
-                while (index < length) {
-                    int read = inputStream.read(data, index, length - index);
-                    if (read == -1)
-                        throw new Exception("read -1");
-                    index += read;
-                }
-                offset = max;
-            }
-
-        } else {
-            System.arraycopy(buf, offset, data, 0, length);
-            offset += lengthWithCRLF;
-        }
-        msgSubject.onNext(new MSG(subject, Integer.parseInt(sid), replyTo, data));
-        return offset;
     }
 
 }
