@@ -3,6 +3,7 @@ package com.github.xy02.nats;
 public class Options {
     private String host = "localhost";
     private int port = 4222;
+    private boolean tls = false;
 
     //second
     private int reconnectInterval = 1;
@@ -12,7 +13,7 @@ public class Options {
     }
 
     public Options setHost(String host) {
-        if(host==null || host.isEmpty())
+        if (host == null || host.isEmpty())
             return this;
         this.host = host;
         return this;
@@ -35,6 +36,15 @@ public class Options {
         if (reconnectInterval < 0)
             return this;
         this.reconnectInterval = reconnectInterval;
+        return this;
+    }
+
+    public boolean isTls() {
+        return tls;
+    }
+
+    public Options setTls(boolean tls) {
+        this.tls = tls;
         return this;
     }
 }

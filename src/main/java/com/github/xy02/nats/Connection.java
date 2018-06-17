@@ -8,6 +8,7 @@ import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 
+import javax.net.ssl.SSLSocketFactory;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -110,8 +111,13 @@ public class Connection implements IConnection {
     private Subject<Long> reconnectSubject = BehaviorSubject.create();
     private Subject<Boolean> onCloseSubject = PublishSubject.create();
 
-    private synchronized void init(Options options) throws IOException {
-        Socket socket = new Socket(options.getHost(), options.getPort());
+    private void init(Options options) throws IOException {
+        Socket socket;
+        if (options.isTls()) {
+            socket = SSLSocketFactory.getDefault().createSocket(options.getHost(), options.getPort());
+        } else {
+            socket = new Socket(options.getHost(), options.getPort());
+        }
         OutputStream os = socket.getOutputStream();
         os.write(BUFFER_CONNECT);
         OutputStream outputStream = new BufferedOutputStream(os, 1024 * 64);
