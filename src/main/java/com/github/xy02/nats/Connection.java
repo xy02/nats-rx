@@ -1,5 +1,6 @@
 package com.github.xy02.nats;
 
+import de.huxhorn.sulky.ulid.ULID;
 import io.reactivex.Observable;
 import io.reactivex.Single;
 import io.reactivex.disposables.Disposable;
@@ -53,9 +54,10 @@ public class Connection implements IConnection {
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
         Disposable d = reconnectSubject
                 .mergeWith(Observable.just(0L))
-                .doOnNext(x -> System.out.printf("sub :%s\n", Thread.currentThread().getName()))
+                .doOnNext(x -> System.out.printf("sub:%s(queue:%s) on %s\n", subject, queue, Thread.currentThread().getName()))
                 .doOnNext(x -> outputSubject.onNext(subMessage))
                 .doOnDispose(() -> outputSubject.onNext(unsubMessage))
+                .doOnDispose(() -> System.out.printf("unsub:%s(queue:%s) on %s\n", subject, queue, Thread.currentThread().getName()))
                 .subscribe();
         return msgSubject.filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject))
                 .doOnDispose(d::dispose);
@@ -71,6 +73,19 @@ public class Connection implements IConnection {
     }
 
     @Override
+    public Single<MSG> request(String subject, byte[] body, long timeout, TimeUnit timeUnit) {
+        String reply = ulid.nextULID();
+        return subscribeMsg(reply)
+                .mergeWith(Observable.just(new MSG(subject, reply, body))
+                        .doOnNext(this::publish))
+                .take(2)
+                .takeLast(1)
+                .singleOrError()
+                .timeout(timeout, timeUnit)
+                ;
+    }
+
+    @Override
     public Single<Long> ping() {
         return Observable.interval(0, 1, TimeUnit.MILLISECONDS)
                 .doOnSubscribe(d -> outputSubject.onNext(BUFFER_PING))
@@ -79,6 +94,8 @@ public class Connection implements IConnection {
                 .singleOrError()
                 .timeout(5, TimeUnit.SECONDS);
     }
+
+    private ULID ulid = new ULID();
 
     private final static byte[] BUFFER_CONNECT = "CONNECT {\"verbose\":false,\"pedantic\":false,\"tls_required\":false,\"name\":\"\",\"lang\":\"java\",\"version\":\"0.2.3\",\"protocol\":0}\r\n".getBytes();
     private final static byte[] BUFFER_PONG = "PONG\r\n".getBytes();
@@ -275,6 +292,7 @@ public class Connection implements IConnection {
         byte[] body = new byte[Integer.parseInt(length)];
         readMsgBody(inputStream, body);
         //handle msg
+//        System.out.printf("on MSG subject: %s, sid: %s, replyTo: %s, bodyLength: %d,\n", subject, sid, replyTo, body.length);
         msgSubject.onNext(new MSG(subject, Integer.parseInt(sid), replyTo, body));
     }
 

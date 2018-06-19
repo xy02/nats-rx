@@ -9,7 +9,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.xy02:nats-rx:0.4.1'
+    implementation 'com.github.xy02:nats-rx:0.4.2'
 }
 ```
 ## Usage
@@ -28,6 +28,11 @@ dependencies {
     //publish message
     MSG msg = new MSG("test", "hello".getBytes());
     client.publish(msg);
+
+    //request
+    nc.request("foo", "bar".getBytes(), 1, TimeUnit.SECONDS)
+            .doOnSuccess(msg -> System.out.printf("msg length: %d\n", msg.getBody().length))
+            .subscribe();
 
     //ping
     nc.ping()
