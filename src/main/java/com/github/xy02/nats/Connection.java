@@ -3,7 +3,6 @@ package com.github.xy02.nats;
 import de.huxhorn.sulky.ulid.ULID;
 import io.reactivex.Observable;
 import io.reactivex.Single;
-import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
@@ -56,9 +55,9 @@ public class Connection implements IConnection {
                 .mergeWith(reconnectSubject
                         .mergeWith(Observable.just(0L))
                         .doOnNext(x -> writeFlushSubject.onNext(subMessage))
-                        .doOnNext(x -> System.out.printf("sub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
+//                        .doOnNext(x -> System.out.printf("sub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
                         .doOnDispose(() -> writeFlushSubject.onNext(unsubMessage))
-                        .doOnDispose(() -> System.out.printf("unsub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
+//                        .doOnDispose(() -> System.out.printf("unsub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
                         .ofType(MSG.class)
                 )
                 ;
@@ -143,7 +142,7 @@ public class Connection implements IConnection {
         InputStream inputStream = socket.getInputStream();
         System.out.printf("connect on :%s\n", Thread.currentThread().getName());
         readData(inputStream)
-                .subscribeOn(Schedulers.io())
+                .subscribeOn(options.getReadScheduler())
                 .mergeWith(writeData(outputStream))
                 .mergeWith(flushData(outputStream))
                 .mergeWith(writeFlushData(outputStream))

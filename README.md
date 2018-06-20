@@ -9,7 +9,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.xy02:nats-rx:0.4.4'
+    implementation 'com.github.xy02:nats-rx:0.4.5'
 }
 ```
 ## Usage

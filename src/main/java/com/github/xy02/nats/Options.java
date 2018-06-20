@@ -1,10 +1,14 @@
 package com.github.xy02.nats;
 
+import io.reactivex.Scheduler;
+import io.reactivex.schedulers.Schedulers;
+
 public class Options {
     private String host = "localhost";
     private int port = 4222;
     private boolean tls = false;
 
+    private Scheduler readScheduler = Schedulers.newThread();
     //second
     private int reconnectInterval = 1;
 
@@ -45,6 +49,15 @@ public class Options {
 
     public Options setTls(boolean tls) {
         this.tls = tls;
+        return this;
+    }
+
+    public Scheduler getReadScheduler() {
+        return readScheduler;
+    }
+
+    public Options setReadScheduler(Scheduler readScheduler) {
+        this.readScheduler = readScheduler;
         return this;
     }
 }
