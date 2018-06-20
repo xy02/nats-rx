@@ -3,7 +3,6 @@ package com.github.xy02.nats;
 import de.huxhorn.sulky.ulid.ULID;
 import io.reactivex.Observable;
 import io.reactivex.Single;
-import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.PublishSubject;
@@ -52,15 +51,16 @@ public class Connection implements IConnection {
         int _sid = plusSid();
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
-        Disposable d = reconnectSubject
+        return reconnectSubject
                 .mergeWith(Observable.just(0L))
-                .doOnNext(x -> System.out.printf("sub:%s(queue:%s) on %s\n", subject, queue, Thread.currentThread().getName()))
-                .doOnNext(x -> outputSubject.onNext(subMessage))
-                .doOnDispose(() -> outputSubject.onNext(unsubMessage))
-                .doOnDispose(() -> System.out.printf("unsub:%s(queue:%s) on %s\n", subject, queue, Thread.currentThread().getName()))
-                .subscribe();
-        return msgSubject.filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject))
-                .doOnDispose(d::dispose);
+                .doOnNext(x -> writeFlushSubject.onNext(subMessage))
+                .doOnNext(x -> System.out.printf("sub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
+                .doOnDispose(() -> writeFlushSubject.onNext(unsubMessage))
+                .doOnDispose(() -> System.out.printf("unsub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
+                .ofType(MSG.class)
+                .mergeWith(msgSubject)
+                .filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject))
+                ;
     }
 
     @Override
@@ -125,6 +125,7 @@ public class Connection implements IConnection {
     private Subject<Boolean> onPongSubject = PublishSubject.create();
     private Subject<MSG> msgSubject = PublishSubject.create();
     private Subject<byte[]> outputSubject = PublishSubject.create();
+    private Subject<byte[]> writeFlushSubject = PublishSubject.create();
     private Subject<Long> reconnectSubject = BehaviorSubject.create();
     private Subject<Boolean> onCloseSubject = PublishSubject.create();
 
@@ -144,6 +145,7 @@ public class Connection implements IConnection {
                 .subscribeOn(Schedulers.io())
                 .mergeWith(writeData(outputStream))
                 .mergeWith(flushData(outputStream))
+                .mergeWith(writeFlushData(outputStream))
                 .takeUntil(onCloseSubject)
                 .doOnTerminate(socket::close)
                 .doOnDispose(socket::close)
@@ -179,6 +181,15 @@ public class Connection implements IConnection {
     private Observable<Long> writeData(OutputStream outputStream) {
         return outputSubject
                 .doOnNext(data -> outputStream.write(data))
+                .map(x -> ++write);
+    }
+
+    private Observable<Long> writeFlushData(OutputStream outputStream) {
+        return writeFlushSubject
+                .doOnNext(data -> {
+                    outputStream.write(data);
+                    outputStream.flush();
+                })
                 .map(x -> ++write);
     }
 

@@ -1,8 +1,10 @@
 import com.github.xy02.nats.Connection;
 import com.github.xy02.nats.IConnection;
+import com.github.xy02.nats.MSG;
 import io.reactivex.Observable;
 import io.reactivex.Single;
 import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
 
 import java.util.concurrent.TimeUnit;
 
@@ -30,10 +32,10 @@ public class Main {
             //create connection
             IConnection nc = new Connection();
             //request
-            nc.request("aips.test", "cPort".getBytes(), 1, TimeUnit.SECONDS)
-                    .doOnSuccess(msg -> System.out.printf("msg length: %d", msg.getBody().length))
-                    .doOnSuccess(msg -> System.out.printf("Received a msg: %s, thread:%s\n", new String(msg.getBody()), Thread.currentThread().getName()))
-                    .subscribe();
+//            nc.request("aips.test", "cPort".getBytes(), 1, TimeUnit.SECONDS)
+//                    .doOnSuccess(msg -> System.out.printf("msg length: %d", msg.getBody().length))
+//                    .doOnSuccess(msg -> System.out.printf("Received a msg: %s, thread:%s\n", new String(msg.getBody()), Thread.currentThread().getName()))
+//                    .subscribe();
             //sub
             if (type >= 0) {
                 Disposable sub = nc.subscribeMsg(subject)
@@ -71,17 +73,17 @@ public class Main {
             ;
 
             //pub
-//            if (type <= 0) {
-//                MSG testMsg = new MSG(subject, "hello".getBytes());
-//                Observable.create(emitter1 -> {
-//                    System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
-//                    while (true) {
-//                        nc.publish(testMsg);
-////                        Thread.yield();
-////                        Thread.sleep(1000);
-//                    }
-//                }).subscribeOn(Schedulers.io()).subscribe();
-//            }
+            if (type <= 0) {
+                MSG testMsg = new MSG(subject, "hello".getBytes());
+                Observable.create(emitter1 -> {
+                    System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
+                    while (true) {
+                        nc.publish(testMsg);
+//                        Thread.yield();
+//                        Thread.sleep(1000);
+                    }
+                }).subscribeOn(Schedulers.io()).subscribe();
+            }
 //            Observable.create(emitter1 -> {
 //                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());
 //                while (true) {
