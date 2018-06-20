@@ -51,15 +51,16 @@ public class Connection implements IConnection {
         int _sid = plusSid();
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
-        return reconnectSubject
-                .mergeWith(Observable.just(0L))
-                .doOnNext(x -> writeFlushSubject.onNext(subMessage))
-                .doOnNext(x -> System.out.printf("sub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
-                .doOnDispose(() -> writeFlushSubject.onNext(unsubMessage))
-                .doOnDispose(() -> System.out.printf("unsub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
-                .ofType(MSG.class)
-                .mergeWith(msgSubject)
+        return msgSubject
                 .filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject))
+                .mergeWith(reconnectSubject
+                        .mergeWith(Observable.just(0L))
+                        .doOnNext(x -> writeFlushSubject.onNext(subMessage))
+                        .doOnNext(x -> System.out.printf("sub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
+                        .doOnDispose(() -> writeFlushSubject.onNext(unsubMessage))
+                        .doOnDispose(() -> System.out.printf("unsub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
+                        .ofType(MSG.class)
+                )
                 ;
     }
 
