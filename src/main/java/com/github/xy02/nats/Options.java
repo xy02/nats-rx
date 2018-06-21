@@ -4,13 +4,8 @@ import io.reactivex.Scheduler;
 import io.reactivex.schedulers.Schedulers;
 
 public class Options {
+    //host of gnatsd server
     private String host = "localhost";
-    private int port = 4222;
-    private boolean tls = false;
-
-    private Scheduler readScheduler = Schedulers.newThread();
-    //second
-    private int reconnectInterval = 1;
 
     public String getHost() {
         return host;
@@ -23,14 +18,44 @@ public class Options {
         return this;
     }
 
+    //port of gnatsd server
+    private int port = 4222;
+
+    public int getPort() {
+        return port;
+    }
+
     public Options setPort(int port) {
         this.port = port;
         return this;
     }
 
-    public int getPort() {
-        return port;
+    //use tls
+    private boolean tls = false;
+
+    public boolean isTls() {
+        return tls;
     }
+
+    public Options setTls(boolean tls) {
+        this.tls = tls;
+        return this;
+    }
+
+    //Scheduler for reading input data
+    private Scheduler readScheduler = Schedulers.io();
+
+    public Scheduler getReadScheduler() {
+        return readScheduler;
+    }
+
+    public Options setReadScheduler(Scheduler readScheduler) {
+        this.readScheduler = readScheduler;
+        return this;
+    }
+
+    //reconnect interval in second
+    private int reconnectInterval = 1;
 
     public int getReconnectInterval() {
         return reconnectInterval;
@@ -43,21 +68,29 @@ public class Options {
         return this;
     }
 
-    public boolean isTls() {
-        return tls;
+    //interval of flushing output data in MICROSECONDS
+    private int flushInterval = 500;
+
+    public int getFlushInterval() {
+        return flushInterval;
     }
 
-    public Options setTls(boolean tls) {
-        this.tls = tls;
+    public Options setFlushInterval(int flushInterval) {
+        if (flushInterval < 100)
+            return this;
+        this.flushInterval = flushInterval;
         return this;
     }
 
-    public Scheduler getReadScheduler() {
-        return readScheduler;
+    //Scheduler for receiving subscribed message
+    private Scheduler subScheduler = Schedulers.computation();
+
+    public Scheduler getSubScheduler() {
+        return subScheduler;
     }
 
-    public Options setReadScheduler(Scheduler readScheduler) {
-        this.readScheduler = readScheduler;
+    public Options setSubScheduler(Scheduler subScheduler) {
+        this.subScheduler = subScheduler;
         return this;
     }
 }

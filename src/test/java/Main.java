@@ -30,7 +30,7 @@ public class Main {
     public void test(String subject, int type) {
         Single.create(emitter -> {
             //create connection
-            IConnection nc = new Connection();
+            Connection nc = new Connection();
             //request
 //            nc.request("aips.test", "cPort".getBytes(), 1, TimeUnit.SECONDS)
 //                    .doOnSuccess(msg -> System.out.printf("msg length: %d", msg.getBody().length))
@@ -58,14 +58,14 @@ public class Main {
 //                    .subscribe();
 
             //ping
-//            Observable
-//                    .interval(3, TimeUnit.SECONDS)
-//                    .flatMapSingle(l -> nc.ping().map(t -> "ping ms:" + t)
-//                            .doOnSuccess(System.out::println))
-//                    .doOnError(Throwable::printStackTrace)
-//                    .retry()
-//                    .subscribe()
-//            ;
+            Observable
+                    .interval(3, TimeUnit.SECONDS)
+                    .flatMapSingle(l -> nc.ping()
+                            .doOnSuccess(t-> System.out.printf("ping %d ms\n",t)))
+                    .doOnError(Throwable::printStackTrace)
+                    .retry()
+                    .subscribe()
+            ;
 
             //log
             Observable.interval(1, TimeUnit.SECONDS)
@@ -80,9 +80,11 @@ public class Main {
                     while (true) {
                         nc.publish(testMsg);
 //                        Thread.yield();
-//                        Thread.sleep(1000);
+//                        Thread.sleep(1);
                     }
-                }).subscribeOn(Schedulers.io()).subscribe();
+                })
+                        .subscribeOn(Schedulers.io())
+                        .subscribe();
             }
 //            Observable.create(emitter1 -> {
 //                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());

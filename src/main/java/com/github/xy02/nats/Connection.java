@@ -3,6 +3,7 @@ package com.github.xy02.nats;
 import de.huxhorn.sulky.ulid.ULID;
 import io.reactivex.Observable;
 import io.reactivex.Single;
+import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
@@ -50,15 +51,18 @@ public class Connection implements IConnection {
         int _sid = plusSid();
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
-        return msgSubject
-                .filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject))
+        Observable<MSG> subMsg = msgSubject
+                .filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject));
+        if (options.getSubScheduler() != null)
+            subMsg = subMsg.observeOn(options.getSubScheduler());
+        return subMsg
                 .mergeWith(reconnectSubject
-                        .mergeWith(Observable.just(0L))
-                        .doOnNext(x -> writeFlushSubject.onNext(subMessage))
+                                .mergeWith(Observable.just(0L))
+                                .doOnNext(x -> writeFlushSubject.onNext(subMessage))
 //                        .doOnNext(x -> System.out.printf("sub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
-                        .doOnDispose(() -> writeFlushSubject.onNext(unsubMessage))
+                                .doOnDispose(() -> writeFlushSubject.onNext(unsubMessage))
 //                        .doOnDispose(() -> System.out.printf("unsub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
-                        .ofType(MSG.class)
+                                .ofType(MSG.class)
                 )
                 ;
     }
@@ -87,7 +91,7 @@ public class Connection implements IConnection {
 
     @Override
     public Single<Long> ping() {
-        return Observable.interval(0, 1, TimeUnit.MILLISECONDS)
+        return Observable.interval(0, 1, TimeUnit.MILLISECONDS, Schedulers.io())
                 .doOnSubscribe(d -> outputSubject.onNext(BUFFER_PING))
                 .takeUntil(onPongSubject)
                 .takeLast(1)
@@ -117,10 +121,10 @@ public class Connection implements IConnection {
     //max bound of buf
     private int max = 0;
 
-    private String[] fragmentArr = new String[10];
     private long reconnectTimes = 0;
     private int sid;
     private long write = 0;
+    private Options options;
 
     private Subject<Boolean> onPongSubject = PublishSubject.create();
     private Subject<MSG> msgSubject = PublishSubject.create();
@@ -130,6 +134,7 @@ public class Connection implements IConnection {
     private Subject<Boolean> onCloseSubject = PublishSubject.create();
 
     private void init(Options options) throws IOException {
+        this.options = options;
         Socket socket;
         if (options.isTls()) {
             socket = SSLSocketFactory.getDefault().createSocket(options.getHost(), options.getPort());
@@ -142,7 +147,7 @@ public class Connection implements IConnection {
         InputStream inputStream = socket.getInputStream();
         System.out.printf("connect on :%s\n", Thread.currentThread().getName());
         readData(inputStream)
-                .subscribeOn(options.getReadScheduler())
+//                .subscribeOn(options.getReadScheduler())
                 .mergeWith(writeData(outputStream))
                 .mergeWith(flushData(outputStream))
                 .mergeWith(writeFlushData(outputStream))
@@ -173,14 +178,14 @@ public class Connection implements IConnection {
     }
 
     private Observable<Long> flushData(OutputStream outputStream) {
-        return Observable.interval(10000, 100, TimeUnit.MICROSECONDS)
+        return Observable.interval(options.getFlushInterval(), TimeUnit.MICROSECONDS, Schedulers.io())
                 .doOnNext(x -> outputStream.flush())
                 ;
     }
 
     private Observable<Long> writeData(OutputStream outputStream) {
         return outputSubject
-                .doOnNext(data -> outputStream.write(data))
+                .doOnNext(outputStream::write)
                 .map(x -> ++write);
     }
 
@@ -198,7 +203,7 @@ public class Connection implements IConnection {
             System.out.printf("read on: %s\n", Thread.currentThread().getName());
             min = 0;
             max = 0;
-            while (true) {
+            while (!Thread.interrupted()) {
                 String messageType = readString(inputStream);
 //                System.out.printf("messageType:%s.\n",messageType);
                 switch (messageType) {
@@ -227,7 +232,7 @@ public class Connection implements IConnection {
                 }
                 readLF(inputStream);
             }
-        }).doOnError(Throwable::printStackTrace);
+        }).doOnError(Throwable::printStackTrace).subscribeOn(options.getReadScheduler());
     }
 
     private void readLF(InputStream inputStream) throws Exception {
