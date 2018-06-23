@@ -30,10 +30,11 @@ public class Connection implements IConnection {
     @Override
     public void close() {
         reconnectSubject.onComplete();
-        outputSubject.onComplete();
+//        outputSubject.onComplete();
         msgSubject.onComplete();
         onPongSubject.onComplete();
         onCloseSubject.onComplete();
+        writeFlushSubject.onComplete();
     }
 
     @Override
@@ -67,12 +68,21 @@ public class Connection implements IConnection {
                 ;
     }
 
+//    @Override
+//    public void publish(MSG msg) {
+//        int bodyLength = msg.getBody().length;
+//        byte[] message = ("PUB " + msg.getSubject() + " " + msg.getReplyTo() + " " + bodyLength + "\r\n").getBytes();
+//        byte[] data = ByteBuffer.allocate(message.length + bodyLength + 2).put(message).put(msg.getBody()).put(BUFFER_CRLF).array();
+//        outputSubject.onNext(data);
+////        System.out.printf("publish on :%s\n", Thread.currentThread().getName());
+//    }
+
     @Override
-    public void publish(MSG msg) {
+    public void publish(MSG msg) throws IOException {
         int bodyLength = msg.getBody().length;
         byte[] message = ("PUB " + msg.getSubject() + " " + msg.getReplyTo() + " " + bodyLength + "\r\n").getBytes();
         byte[] data = ByteBuffer.allocate(message.length + bodyLength + 2).put(message).put(msg.getBody()).put(BUFFER_CRLF).array();
-        outputSubject.onNext(data);
+        os.write(data);
 //        System.out.printf("publish on :%s\n", Thread.currentThread().getName());
     }
 
@@ -91,9 +101,11 @@ public class Connection implements IConnection {
 
     @Override
     public Single<Long> ping() {
-        return Observable.interval(0, 1, TimeUnit.MILLISECONDS, Schedulers.io())
-                .doOnSubscribe(d -> outputSubject.onNext(BUFFER_PING))
+        return Observable.interval(0, 1, TimeUnit.MILLISECONDS)
                 .takeUntil(onPongSubject)
+                .mergeWith(Observable.timer(0, TimeUnit.MILLISECONDS)
+                        .doOnNext(x -> writeFlushSubject.onNext(BUFFER_PING))
+                )
                 .takeLast(1)
                 .singleOrError()
                 .timeout(5, TimeUnit.SECONDS);
@@ -125,15 +137,16 @@ public class Connection implements IConnection {
     private int sid;
     private long write = 0;
     private Options options;
+    private volatile OutputStream os;
 
     private Subject<Boolean> onPongSubject = PublishSubject.create();
     private Subject<MSG> msgSubject = PublishSubject.create();
-    private Subject<byte[]> outputSubject = PublishSubject.create();
+    //    private Subject<byte[]> outputSubject = PublishSubject.create();
     private Subject<byte[]> writeFlushSubject = PublishSubject.create();
     private Subject<Long> reconnectSubject = BehaviorSubject.create();
     private Subject<Boolean> onCloseSubject = PublishSubject.create();
 
-    private void init(Options options) throws IOException {
+    private synchronized void init(Options options) throws IOException {
         this.options = options;
         Socket socket;
         if (options.isTls()) {
@@ -144,11 +157,11 @@ public class Connection implements IConnection {
         OutputStream os = socket.getOutputStream();
         os.write(BUFFER_CONNECT);
         OutputStream outputStream = new BufferedOutputStream(os, 1024 * 64);
+        this.os = outputStream;
         InputStream inputStream = socket.getInputStream();
         System.out.printf("connect on :%s\n", Thread.currentThread().getName());
-        readData(inputStream)
-//                .subscribeOn(options.getReadScheduler())
-                .mergeWith(writeData(outputStream))
+        readData(inputStream, outputStream)
+//                .mergeWith(writeData(outputStream))
                 .mergeWith(flushData(outputStream))
                 .mergeWith(writeFlushData(outputStream))
                 .takeUntil(onCloseSubject)
@@ -183,12 +196,12 @@ public class Connection implements IConnection {
                 ;
     }
 
-    private Observable<Long> writeData(OutputStream outputStream) {
-        return outputSubject
-                .doOnNext(outputStream::write)
-                .map(x -> ++write);
-    }
-
+    //    private Observable<Long> writeData(OutputStream outputStream) {
+//        return outputSubject
+//                .doOnNext(outputStream::write)
+//                .map(x -> ++write);
+//    }
+//
     private Observable<Long> writeFlushData(OutputStream outputStream) {
         return writeFlushSubject
                 .doOnNext(data -> {
@@ -198,7 +211,7 @@ public class Connection implements IConnection {
                 .map(x -> ++write);
     }
 
-    private Observable<Long> readData(InputStream inputStream) {
+    private Observable<Long> readData(InputStream inputStream, OutputStream outputStream) {
         return Observable.<Long>create(emitter -> {
             System.out.printf("read on: %s\n", Thread.currentThread().getName());
             min = 0;
@@ -215,7 +228,8 @@ public class Connection implements IConnection {
                         System.out.println(json);
                         break;
                     case TYPE_PING:
-                        outputSubject.onNext(BUFFER_PONG);
+//                        outputSubject.onNext(BUFFER_PONG);
+                        outputStream.write(BUFFER_PONG);
                         break;
                     case TYPE_PONG:
                         onPongSubject.onNext(true);

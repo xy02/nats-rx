@@ -9,7 +9,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.xy02:nats-rx:0.5.0'
+    implementation 'com.github.xy02:nats-rx:0.6.0'
 }
 ```
 ## Usage
@@ -19,11 +19,16 @@ dependencies {
 
     //subscribe message
     Disposable sd = nc.subscribeMsg("test")
-            .doOnNext(msg -> System.out.println(msg.getSubject() + ", body length:" + msg.getBody().length))
-            .subscribe(msg -> {},err->{},()->System.out.println("subscribeMsg onComplete"))
+            .doOnNext(msg -> System.out.printf("subject:%s, body length:%d \n", msg.getSubject(), msg.getBody().length))
+            .subscribe(msg -> {},err->{},()->System.out.println("subscribeMsg onComplete"));
 
     //unsubscribe
     sd.dispose();
+
+    //subscribe message on queue
+    nc.subscribeMsg("test", "myQueue")
+            .doOnNext(msg -> System.out.printf("subject:%s, body length:%d \n", msg.getSubject(), msg.getBody().length))
+            .subscribe();
 
     //publish message
     MSG msg = new MSG("test", "hello".getBytes());
@@ -32,6 +37,11 @@ dependencies {
     //request
     nc.request("foo", "bar".getBytes(), 1, TimeUnit.SECONDS)
             .doOnSuccess(msg -> System.out.printf("msg length: %d\n", msg.getBody().length))
+            .subscribe();
+
+    //on reconnect
+    nc.onReconnect()
+            .doOnNext(x->  System.out.printf("!!!on reconnect %d\n",x))
             .subscribe();
 
     //ping

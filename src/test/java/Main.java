@@ -1,7 +1,9 @@
 import com.github.xy02.nats.Connection;
 import com.github.xy02.nats.IConnection;
 import com.github.xy02.nats.MSG;
+import com.github.xy02.nats.Options;
 import io.reactivex.Observable;
+import io.reactivex.Scheduler;
 import io.reactivex.Single;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
@@ -27,10 +29,12 @@ public class Main {
 
     public long length = 0;
 
+    long secondsAgo = 0;
+
     public void test(String subject, int type) {
         Single.create(emitter -> {
             //create connection
-            Connection nc = new Connection();
+            IConnection nc = new Connection(new Options().setSubScheduler(Schedulers.computation()));
             //request
 //            nc.request("aips.test", "cPort".getBytes(), 1, TimeUnit.SECONDS)
 //                    .doOnSuccess(msg -> System.out.printf("msg length: %d", msg.getBody().length))
@@ -68,15 +72,19 @@ public class Main {
             ;
 
             //log
+            long sample = 1;
             Observable.interval(1, TimeUnit.SECONDS)
-                    .subscribe(x -> System.out.printf("%d sec read: %d, ops: %d/s\n", x + 1, read, read / (x + 1)))
+                    .sample(sample,TimeUnit.SECONDS)
+                    .doOnNext(x->  System.out.printf("%d sec read: %d, ops: %d/s\n", x + 1, read, (read-secondsAgo) / sample))
+                    .doOnNext(x-> secondsAgo = read)
+                    .subscribe()
             ;
 
             //pub
             if (type <= 0) {
                 MSG testMsg = new MSG(subject, "hello".getBytes());
                 Observable.create(emitter1 -> {
-                    System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
+//                    System.out.printf("publish on 1 :%s\n", Thread.currentThread().getName());
                     while (true) {
                         nc.publish(testMsg);
 //                        Thread.yield();
@@ -84,8 +92,13 @@ public class Main {
                     }
                 })
                         .subscribeOn(Schedulers.io())
+                        .retry()
                         .subscribe();
             }
+            //on reconnect
+            nc.onReconnect()
+                    .doOnNext(x->  System.out.printf("!!!on reconnect %d\n",x))
+                    .subscribe();
 //            Observable.create(emitter1 -> {
 //                System.out.printf("publish on 2 :%s\n", Thread.currentThread().getName());
 //                while (true) {
