@@ -29,10 +29,12 @@ public class Connection implements IConnection {
     public Connection(Options options) throws IOException {
         init(options);
 
-        //new request style
-        subscribeMsg(myRequestPrefix + "*")
-                .doOnNext(onResponseSubject::onNext)
-                .subscribe();
+        if (!options.isUseOldRequestStyle()) {
+            //new request style
+            subscribeMsg(myRequestPrefix + "*")
+                    .doOnNext(onResponseSubject::onNext)
+                    .subscribe();
+        }
     }
 
     @Override
