@@ -4,6 +4,9 @@ import io.reactivex.Scheduler;
 import io.reactivex.schedulers.Schedulers;
 
 public class Options {
+
+    static final String REQUEST_PREFIX = "r.";
+
     //host of gnatsd server
     private String host = "localhost";
 
@@ -91,6 +94,18 @@ public class Options {
 
     public Options setSubScheduler(Scheduler subScheduler) {
         this.subScheduler = subScheduler;
+        return this;
+    }
+
+    //UseOldRequestStyle
+    private boolean useOldRequestStyle = false;
+
+    public boolean isUseOldRequestStyle() {
+        return useOldRequestStyle;
+    }
+
+    public Options setUseOldRequestStyle(boolean useOldRequestStyle) {
+        this.useOldRequestStyle = useOldRequestStyle;
         return this;
     }
 }

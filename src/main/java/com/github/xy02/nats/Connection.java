@@ -17,7 +17,10 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 
+import static com.github.xy02.nats.Options.REQUEST_PREFIX;
+
 public class Connection implements IConnection {
+
 
     public Connection() throws IOException {
         this(new Options());
@@ -25,6 +28,11 @@ public class Connection implements IConnection {
 
     public Connection(Options options) throws IOException {
         init(options);
+
+        //new request style
+        subscribeMsg(myRequestPrefix + "*")
+                .doOnNext(onResponseSubject::onNext)
+                .subscribe();
     }
 
     @Override
@@ -35,6 +43,7 @@ public class Connection implements IConnection {
         onPongSubject.onComplete();
         onCloseSubject.onComplete();
         writeFlushSubject.onComplete();
+        onResponseSubject.onComplete();
     }
 
     @Override
@@ -53,7 +62,7 @@ public class Connection implements IConnection {
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
         Observable<MSG> subMsg = msgSubject
-                .filter(msg -> msg.getSid() == _sid && msg.getSubject().equals(subject));
+                .filter(msg -> msg.getSid() == _sid);
         if (options.getSubScheduler() != null)
             subMsg = subMsg.observeOn(options.getSubScheduler());
         return subMsg
@@ -88,12 +97,28 @@ public class Connection implements IConnection {
 
     @Override
     public Single<MSG> request(String subject, byte[] body, long timeout, TimeUnit timeUnit) {
-        String reply = ulid.nextULID();
-        return subscribeMsg(reply)
-                .mergeWith(Observable.just(new MSG(subject, reply, body))
-                        .doOnNext(this::publish))
-                .take(2)
-                .takeLast(1)
+        if (options.isUseOldRequestStyle()) {
+            String reply = REQUEST_PREFIX + ulid.nextULID();
+            return subscribeMsg(reply)
+                    .mergeWith(Observable.create(emitter -> {
+                                this.publish(new MSG(subject, reply, body));
+                                emitter.onComplete();
+                            })
+                    )
+                    .take(1)
+                    .singleOrError()
+                    .timeout(timeout, timeUnit)
+                    ;
+        }
+        String reply = myRequestPrefix + ulid.nextULID();
+        return onResponseSubject
+                .filter(msg -> msg.getSubject().equals(reply))
+                .mergeWith(Observable.create(emitter -> {
+                            this.publish(new MSG(subject, reply, body));
+                            emitter.onComplete();
+                        })
+                )
+                .take(1)
                 .singleOrError()
                 .timeout(timeout, timeUnit)
                 ;
@@ -112,6 +137,7 @@ public class Connection implements IConnection {
     }
 
     private ULID ulid = new ULID();
+    private String myRequestPrefix = REQUEST_PREFIX + ulid.nextULID() + ".";
 
     private final static byte[] BUFFER_CONNECT = "CONNECT {\"verbose\":false,\"pedantic\":false,\"tls_required\":false,\"name\":\"\",\"lang\":\"java\",\"version\":\"0.2.3\",\"protocol\":0}\r\n".getBytes();
     private final static byte[] BUFFER_PONG = "PONG\r\n".getBytes();
@@ -145,6 +171,7 @@ public class Connection implements IConnection {
     private Subject<byte[]> writeFlushSubject = PublishSubject.create();
     private Subject<Long> reconnectSubject = BehaviorSubject.create();
     private Subject<Boolean> onCloseSubject = PublishSubject.create();
+    private Subject<MSG> onResponseSubject = PublishSubject.create();
 
     private synchronized void init(Options options) throws IOException {
         this.options = options;
