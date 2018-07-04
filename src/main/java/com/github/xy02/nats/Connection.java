@@ -16,7 +16,6 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 
 import static com.github.xy02.nats.Options.REQUEST_PREFIX;
 
@@ -119,7 +118,7 @@ public class Connection implements IConnection {
         long id = plusRequestID();
         String reply = myRequestPrefix + id;
         return onResponseSubject
-                .filter(msg->msg.getSubject().equals(reply))
+                .filter(msg -> msg.getSubject().equals(reply))
                 .take(1)
                 .mergeWith(Observable.create(emitter -> {
                             this.publish(new MSG(subject, reply, body));
@@ -362,7 +361,7 @@ public class Connection implements IConnection {
         readMsgBody(inputStream, body);
         //handle msg
 //        System.out.printf("on MSG subject: %s, sid: %s, replyTo: %s, bodyLength: %d,\n", subject, sid, replyTo, body.length);
-        msgSubject.onNext(new MSG(subject, Integer.parseInt(sid), replyTo, body));
+        msgSubject.onNext(new MSG(subject, Long.parseLong(sid), replyTo, body));
     }
 
     private void readMsgBody(InputStream inputStream, byte[] body) throws Exception {
