@@ -2,7 +2,7 @@ package com.github.xy02.nats;
 
 public class MSG {
     private String subject;
-    private int sid;
+    private long sid;
     private String replyTo;
     private byte[] body;
 
@@ -15,7 +15,7 @@ public class MSG {
     }
 
 
-    MSG(String subject, int sid, String replyTo, byte[] body) {
+    MSG(String subject, long sid, String replyTo, byte[] body) {
         this.subject = subject;
         this.sid = sid;
         this.replyTo = replyTo;
@@ -30,11 +30,11 @@ public class MSG {
         this.subject = subject;
     }
 
-    public int getSid() {
+    public long getSid() {
         return sid;
     }
 
-    public void setSid(int sid) {
+    public void setSid(long sid) {
         this.sid = sid;
     }
 

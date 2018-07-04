@@ -16,6 +16,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import static com.github.xy02.nats.Options.REQUEST_PREFIX;
 
@@ -29,12 +30,10 @@ public class Connection implements IConnection {
     public Connection(Options options) throws IOException {
         init(options);
 
-        if (!options.isUseOldRequestStyle()) {
-            //new request style
-            subscribeMsg(myRequestPrefix + "*")
-                    .doOnNext(onResponseSubject::onNext)
-                    .subscribe();
-        }
+        //new request style
+        subscribeMsg(myRequestPrefix + "*")
+                .doOnNext(onResponseSubject::onNext)
+                .subscribe();
     }
 
     @Override
@@ -60,7 +59,7 @@ public class Connection implements IConnection {
 
     @Override
     public Observable<MSG> subscribeMsg(String subject, String queue) {
-        int _sid = plusSid();
+        long _sid = plusSid();
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
         Observable<MSG> subMsg = msgSubject
@@ -97,33 +96,43 @@ public class Connection implements IConnection {
 //        System.out.printf("publish on :%s\n", Thread.currentThread().getName());
     }
 
+//    @Override
+//    public Single<MSG> request(String subject, byte[] body, long timeout, TimeUnit timeUnit) {
+//        if (options.isUseOldRequestStyle()) {
+//            String reply = REQUEST_PREFIX + ulid.nextULID();
+//            return subscribeMsg(reply)
+//                    .mergeWith(Observable.create(emitter -> {
+//                                this.publish(new MSG(subject, reply, body));
+//                                emitter.onComplete();
+//                            })
+//                    )
+//                    .take(1)
+//                    .singleOrError()
+//                    .timeout(timeout, timeUnit)
+//                    ;
+//        }
+//        return newRequest(subject,body,timeout,timeUnit);
+//    }
+
     @Override
     public Single<MSG> request(String subject, byte[] body, long timeout, TimeUnit timeUnit) {
-        if (options.isUseOldRequestStyle()) {
-            String reply = REQUEST_PREFIX + ulid.nextULID();
-            return subscribeMsg(reply)
-                    .mergeWith(Observable.create(emitter -> {
-                                this.publish(new MSG(subject, reply, body));
-                                emitter.onComplete();
-                            })
-                    )
-                    .take(1)
-                    .singleOrError()
-                    .timeout(timeout, timeUnit)
-                    ;
-        }
-        String reply = myRequestPrefix + ulid.nextULID();
+        long id = plusRequestID();
+        String reply = myRequestPrefix + id;
         return onResponseSubject
-                .filter(msg -> msg.getSubject().equals(reply))
+                .filter(msg->msg.getSubject().equals(reply))
+                .take(1)
                 .mergeWith(Observable.create(emitter -> {
                             this.publish(new MSG(subject, reply, body));
                             emitter.onComplete();
                         })
                 )
-                .take(1)
                 .singleOrError()
                 .timeout(timeout, timeUnit)
                 ;
+    }
+
+    private synchronized long plusRequestID() {
+        return ++requestID;
     }
 
     @Override
@@ -162,7 +171,8 @@ public class Connection implements IConnection {
     private int max = 0;
 
     private long reconnectTimes = 0;
-    private int sid;
+    private long sid;
+    private long requestID;
     private long write = 0;
     private Options options;
     private volatile OutputStream os;
@@ -215,7 +225,7 @@ public class Connection implements IConnection {
                 .subscribe();
     }
 
-    private synchronized int plusSid() {
+    private synchronized long plusSid() {
         return ++sid;
     }
 

@@ -97,15 +97,4 @@ public class Options {
         return this;
     }
 
-    //UseOldRequestStyle
-    private boolean useOldRequestStyle = false;
-
-    public boolean isUseOldRequestStyle() {
-        return useOldRequestStyle;
-    }
-
-    public Options setUseOldRequestStyle(boolean useOldRequestStyle) {
-        this.useOldRequestStyle = useOldRequestStyle;
-        return this;
-    }
 }

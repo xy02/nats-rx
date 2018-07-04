@@ -33,23 +33,23 @@ public class Main {
     long secondsAgo = 0;
 
     public void request() {
-        try {
-            IConnection nc = new Connection();
-            Observable
-                    .interval(80, TimeUnit.MICROSECONDS)
-                    .flatMapSingle(x->
-                            nc.request("reqRes", "cPort".getBytes(), 10, TimeUnit.SECONDS)
-                    )
-                    .subscribe();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+//        try {
+//            IConnection nc = new Connection();
+//            Observable
+//                    .interval(5*1000000, 10, TimeUnit.MICROSECONDS)
+//                    .flatMapSingle(x->
+//                            nc.request("reqRes", "cPort".getBytes(), 1, TimeUnit.SECONDS)
+//                    )
+//                    .subscribe(x->{},err->{});
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
     }
 
     public Main() {
         try {
             IConnection nc = new Connection(new Options().setSubScheduler(Schedulers.computation()));
-            nc.subscribeMsg("reqRes")
+            nc.subscribeMsg("req.res")
                     .doOnNext(msg -> nc.publish(new MSG(msg.getReplyTo(), msg.getBody())))
                     .doOnNext(msg -> read++)
                     .subscribe();
