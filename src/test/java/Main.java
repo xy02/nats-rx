@@ -16,8 +16,8 @@ public class Main {
         try {
 //            new Main().test("sub1", 1);
 //            new Main().test("sub1", -1);
-//            new Main().test("sub1", 0);
-            new Main().request();
+            new Main().test("sub1", 0);
+//            new Main().request();
 
             Thread.sleep(Long.MAX_VALUE);
 

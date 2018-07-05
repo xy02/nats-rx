@@ -2,6 +2,7 @@ package com.github.xy02.nats;
 
 import de.huxhorn.sulky.ulid.ULID;
 import io.reactivex.Observable;
+import io.reactivex.ObservableEmitter;
 import io.reactivex.Single;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.BehaviorSubject;
@@ -15,6 +16,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import static com.github.xy02.nats.Options.REQUEST_PREFIX;
@@ -31,7 +34,15 @@ public class Connection implements IConnection {
 
         //new request style
         subscribeMsg(myRequestPrefix + "*")
-                .doOnNext(onResponseSubject::onNext)
+                .doOnNext(msg -> {
+                    String subject = msg.getSubject();
+                    ObservableEmitter<MSG> emitter = requestEmitters.get(subject);
+                    if (emitter != null) {
+                        emitter.onNext(msg);
+                        emitter.onComplete();
+                    }
+                })
+//                .doOnNext(onResponseSubject::onNext)
                 .subscribe();
     }
 
@@ -39,11 +50,11 @@ public class Connection implements IConnection {
     public void close() {
         reconnectSubject.onComplete();
 //        outputSubject.onComplete();
-        msgSubject.onComplete();
+//        msgSubject.onComplete();
         onPongSubject.onComplete();
         onCloseSubject.onComplete();
         writeFlushSubject.onComplete();
-        onResponseSubject.onComplete();
+//        onResponseSubject.onComplete();
     }
 
     @Override
@@ -61,8 +72,11 @@ public class Connection implements IConnection {
         long _sid = plusSid();
         byte[] subMessage = ("SUB " + subject + " " + queue + " " + _sid + "\r\n").getBytes();
         byte[] unsubMessage = ("UNSUB " + _sid + "\r\n").getBytes();
-        Observable<MSG> subMsg = msgSubject
-                .filter(msg -> msg.getSid() == _sid);
+        Observable<MSG> subMsg = Observable.create(emitter -> {
+            msgEmitters.put(_sid, emitter);
+        });
+//        Observable<MSG> subMsg = msgSubject
+//                .filter(msg -> msg.getSid() == _sid);
         if (options.getSubScheduler() != null)
             subMsg = subMsg.observeOn(options.getSubScheduler());
         return subMsg
@@ -74,6 +88,7 @@ public class Connection implements IConnection {
 //                        .doOnDispose(() -> System.out.printf("unsub:%s(queue:'%s') on %s\n", subject, queue, Thread.currentThread().getName()))
                                 .ofType(MSG.class)
                 )
+                .doFinally(() -> msgEmitters.remove(_sid))
                 ;
     }
 
@@ -117,8 +132,9 @@ public class Connection implements IConnection {
     public Single<MSG> request(String subject, byte[] body, long timeout, TimeUnit timeUnit) {
         long id = plusRequestID();
         String reply = myRequestPrefix + id;
-        return onResponseSubject
-                .filter(msg -> msg.getSubject().equals(reply))
+        return Observable.<MSG>create(emitter -> {
+            requestEmitters.put(reply, emitter);
+        })
                 .take(1)
                 .mergeWith(Observable.create(emitter -> {
                             this.publish(new MSG(subject, reply, body));
@@ -127,7 +143,19 @@ public class Connection implements IConnection {
                 )
                 .singleOrError()
                 .timeout(timeout, timeUnit)
+                .doFinally(() -> requestEmitters.remove(reply))
                 ;
+//        return onResponseSubject
+//                .filter(msg -> msg.getSubject().equals(reply))
+//                .take(1)
+//                .mergeWith(Observable.create(emitter -> {
+//                            this.publish(new MSG(subject, reply, body));
+//                            emitter.onComplete();
+//                        })
+//                )
+//                .singleOrError()
+//                .timeout(timeout, timeUnit)
+//                ;
     }
 
     private synchronized long plusRequestID() {
@@ -177,12 +205,14 @@ public class Connection implements IConnection {
     private volatile OutputStream os;
 
     private Subject<Boolean> onPongSubject = PublishSubject.create();
-    private Subject<MSG> msgSubject = PublishSubject.create();
+    //    private Subject<MSG> msgSubject = PublishSubject.create();
     //    private Subject<byte[]> outputSubject = PublishSubject.create();
     private Subject<byte[]> writeFlushSubject = PublishSubject.create();
     private Subject<Long> reconnectSubject = BehaviorSubject.create();
     private Subject<Boolean> onCloseSubject = PublishSubject.create();
-    private Subject<MSG> onResponseSubject = PublishSubject.create();
+
+    private Map<String, ObservableEmitter<MSG>> requestEmitters = new ConcurrentHashMap<>();
+    private Map<Long, ObservableEmitter<MSG>> msgEmitters = new ConcurrentHashMap<>();
 
     private synchronized void init(Options options) throws IOException {
         this.options = options;
@@ -361,7 +391,9 @@ public class Connection implements IConnection {
         readMsgBody(inputStream, body);
         //handle msg
 //        System.out.printf("on MSG subject: %s, sid: %s, replyTo: %s, bodyLength: %d,\n", subject, sid, replyTo, body.length);
-        msgSubject.onNext(new MSG(subject, Long.parseLong(sid), replyTo, body));
+        Long _sid = Long.parseLong(sid);
+        msgEmitters.get(_sid).onNext(new MSG(subject, _sid, replyTo, body));
+//        msgSubject.onNext(new MSG(subject, Long.parseLong(sid), replyTo, body));
     }
 
     private void readMsgBody(InputStream inputStream, byte[] body) throws Exception {
